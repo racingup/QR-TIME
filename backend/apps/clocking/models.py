@@ -1,4 +1,4 @@
-"""ClockSession and FixedTimeSlot models."""
+"""ClockSession, FixedTimeSlot, and Alert models."""
 from __future__ import annotations
 
 from django.conf import settings
@@ -76,3 +76,39 @@ class ClockSession(models.Model):
             return 0
         delta = self.clock_out_rounded - self.clock_in_rounded
         return int(delta.total_seconds() // 60)
+
+
+class Alert(models.Model):
+    """Alerte générée par le système pour le manager (oubli, justif, …)."""
+
+    class Kind(models.TextChoices):
+        FORGOTTEN_CLOCKOUT = "FORGOTTEN_CLOCKOUT", "Oubli de pointage"
+
+    kind = models.CharField(max_length=32, choices=Kind.choices)
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name="alerts",
+        help_text="Employé concerné par l'alerte.",
+    )
+    session = models.ForeignKey(
+        ClockSession, on_delete=models.CASCADE,
+        null=True, blank=True, related_name="alerts",
+    )
+    message = models.TextField(blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    resolved_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        ordering = ["-created_at"]
+        constraints = [
+            # Un seul alert "FORGOTTEN_CLOCKOUT" par session.
+            models.UniqueConstraint(
+                fields=["kind", "session"],
+                name="unique_alert_per_session_kind",
+            ),
+        ]
+
+    @property
+    def is_resolved(self) -> bool:
+        return self.resolved_at is not None

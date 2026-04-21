@@ -83,3 +83,21 @@ class ToleranceConfig(models.Model):
     def load(cls) -> "ToleranceConfig":
         obj, _ = cls.objects.get_or_create(pk=1)
         return obj
+
+
+class SiteQRAudit(models.Model):
+    """Audit log of QR-token regenerations on a Site."""
+
+    site = models.ForeignKey(
+        Site, on_delete=models.CASCADE, related_name="qr_audits",
+    )
+    old_token = models.CharField(max_length=64)
+    new_token = models.CharField(max_length=64)
+    regenerated_by = models.ForeignKey(
+        "users.UserProfile", on_delete=models.SET_NULL,
+        null=True, blank=True, related_name="qr_regenerations",
+    )
+    regenerated_at = models.DateTimeField(default=timezone.now)
+
+    class Meta:
+        ordering = ["-regenerated_at"]

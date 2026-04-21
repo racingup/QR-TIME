@@ -4,16 +4,23 @@ from __future__ import annotations
 from datetime import date as date_type
 
 from django.utils import timezone
-from rest_framework import status
+from rest_framework import generics, status
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
+from rest_framework import viewsets
+
 from apps.clocking.models import ClockSession, FixedTimeSlot
-from apps.clocking.serializers import ClockSessionSerializer, ScanRequestSerializer
+from apps.clocking.serializers import (
+    ClockSessionSerializer,
+    FixedTimeSlotSerializer,
+    ScanRequestSerializer,
+)
 from apps.missions.models import Mission
 from apps.users.models import Site, ToleranceConfig
+from apps.users.permissions import IsManager
 from services.fixed_slots import requires_justification
 from services.geo import haversine
 from services.overtime import compute_overtime
@@ -159,6 +166,14 @@ class ScanView(APIView):
         return Response(body, status=status.HTTP_200_OK)
 
 
+class FixedTimeSlotViewSet(viewsets.ModelViewSet):
+    """CRUD on FixedTimeSlot — manager only."""
+
+    queryset = FixedTimeSlot.objects.all().order_by("start_time")
+    serializer_class = FixedTimeSlotSerializer
+    permission_classes = [IsManager]
+
+
 class TodaySessionsView(APIView):
     """GET /api/clock/today/ — sessions for the authenticated user, today."""
 
@@ -170,3 +185,137 @@ class TodaySessionsView(APIView):
             user=request.user, clock_in__date=today,
         ).order_by("clock_in")
         return Response(ClockSessionSerializer(sessions, many=True).data)
+
+
+class HistoryView(APIView):
+    """GET /api/clock/history/?month=YYYY-MM — month of sessions for the user."""
+
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request: Request) -> Response:
+        from datetime import date as date_type
+        month_str = request.query_params.get("month") or timezone.localdate().strftime("%Y-%m")
+        try:
+            year, month = (int(x) for x in month_str.split("-"))
+            start = date_type(year, month, 1)
+        except (ValueError, TypeError):
+            return Response(
+                {"error": "INVALID_MONTH", "expected": "YYYY-MM"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        if month == 12:
+            end = date_type(year + 1, 1, 1)
+        else:
+            end = date_type(year, month + 1, 1)
+
+        sessions = ClockSession.objects.filter(
+            user=request.user,
+            clock_in__date__gte=start,
+            clock_in__date__lt=end,
+        ).order_by("clock_in")
+        return Response(ClockSessionSerializer(sessions, many=True).data)
+
+
+class ManagerPresenceView(APIView):
+    """GET /api/manager/presence/ — who is currently clocked in (open session)."""
+
+    permission_classes = [IsManager]
+
+    def get(self, request: Request) -> Response:
+        open_sessions = (
+            ClockSession.objects.filter(clock_out__isnull=True)
+            .select_related("user", "site", "mission")
+            .order_by("user__username")
+        )
+        present = [
+            {
+                "user_id": s.user_id,
+                "username": s.user.get_username(),
+                "session_type": s.session_type,
+                "site_name": s.site.name if s.site else None,
+                "clock_in": s.clock_in,
+                "clock_in_rounded": s.clock_in_rounded,
+            }
+            for s in open_sessions
+        ]
+        return Response({"present": present, "count": len(present)})
+
+
+class ManagerAlertsView(APIView):
+    """GET /api/manager/alerts/ — unresolved alerts (forgotten + pending justif)."""
+
+    permission_classes = [IsManager]
+
+    def get(self, request: Request) -> Response:
+        from apps.clocking.models import Alert
+        alerts = (
+            Alert.objects.filter(resolved_at__isnull=True)
+            .select_related("user", "session")
+            .order_by("-created_at")
+        )
+        pending_justif = (
+            ClockSession.objects.filter(
+                justification__gt="",
+                justification_approved__isnull=True,
+            )
+            .select_related("user")
+            .order_by("-clock_in")
+        )
+        return Response({
+            "alerts": [
+                {
+                    "id": a.id,
+                    "kind": a.kind,
+                    "user_id": a.user_id,
+                    "username": a.user.get_username(),
+                    "session_id": a.session_id,
+                    "message": a.message,
+                    "created_at": a.created_at,
+                }
+                for a in alerts
+            ],
+            "pending_justifications": [
+                {
+                    "session_id": s.id,
+                    "user_id": s.user_id,
+                    "username": s.user.get_username(),
+                    "clock_in": s.clock_in,
+                    "clock_out": s.clock_out,
+                    "justification": s.justification,
+                }
+                for s in pending_justif
+            ],
+        })
+
+
+class RegularizeSessionView(APIView):
+    """PATCH /api/clock/{id}/regularize/ — manager closes a forgotten session."""
+
+    permission_classes = [IsManager]
+
+    def patch(self, request: Request, pk: int) -> Response:
+        session = generics.get_object_or_404(ClockSession, pk=pk)
+        if session.clock_out is not None:
+            return Response(
+                {"error": "SESSION_ALREADY_CLOSED"},
+                status=status.HTTP_409_CONFLICT,
+            )
+        # Manager supplies clock_out (ISO datetime) or we default to clock_in + 8h.
+        from datetime import timedelta
+        from django.utils.dateparse import parse_datetime
+        raw = request.data.get("clock_out")
+        clock_out = parse_datetime(raw) if raw else session.clock_in + timedelta(hours=8)
+        if clock_out is None:
+            return Response(
+                {"error": "INVALID_CLOCK_OUT"}, status=status.HTTP_400_BAD_REQUEST,
+            )
+        session.clock_out = clock_out
+        session.clock_out_rounded = clock_out
+        session.is_forgotten = True
+        session.save()
+        # Resolve the related alert if any.
+        from apps.clocking.models import Alert
+        Alert.objects.filter(
+            session=session, kind=Alert.Kind.FORGOTTEN_CLOCKOUT, resolved_at__isnull=True,
+        ).update(resolved_at=timezone.now())
+        return Response(ClockSessionSerializer(session).data)

@@ -126,9 +126,12 @@ CORS_ALLOWED_ORIGINS = [
 CELERY_BROKER_URL = os.environ.get("REDIS_URL", "redis://localhost:6379/0")
 CELERY_RESULT_BACKEND = CELERY_BROKER_URL
 CELERY_TIMEZONE = TIME_ZONE
+from celery.schedules import crontab  # noqa: E402
+
 CELERY_BEAT_SCHEDULE = {
     "detect-forgotten-clockouts": {
         "task": "apps.clocking.tasks.detect_forgotten_clockouts",
-        "schedule": 60 * 60,  # hourly; cheap idempotent check
+        # Tous les soirs à 20h00 heure locale (Europe/Paris).
+        "schedule": crontab(hour=20, minute=0),
     },
 }

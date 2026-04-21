@@ -22,6 +22,24 @@ class MissionCreateView(generics.CreateAPIView):
         serializer.save(user=self.request.user, status=Mission.Status.PENDING)
 
 
+class MyMissionsView(generics.ListAPIView):
+    """GET /api/missions/my/ — missions for the authenticated user."""
+
+    serializer_class = MissionSerializer
+    permission_classes = [IsAuthenticated]
+
+    def get_queryset(self):
+        return Mission.objects.filter(user=self.request.user)
+
+
+class PendingMissionsView(generics.ListAPIView):
+    """GET /api/missions/pending/ — manager-facing pending missions."""
+
+    serializer_class = MissionSerializer
+    permission_classes = [IsManager]
+    queryset = Mission.objects.filter(status=Mission.Status.PENDING)
+
+
 class MissionApproveView(APIView):
     """PATCH /api/missions/{id}/approve/ — manager approves; qr_token generated."""
 
@@ -29,6 +47,11 @@ class MissionApproveView(APIView):
 
     def patch(self, request, pk: int):
         mission = generics.get_object_or_404(Mission, pk=pk)
+        if mission.user_id == request.user.id and not request.user.is_superuser:
+            return Response(
+                {"error": "SELF_APPROVAL_FORBIDDEN"},
+                status=status.HTTP_403_FORBIDDEN,
+            )
         payload = MissionDecisionSerializer(data=request.data)
         payload.is_valid(raise_exception=True)
         mission.approve(request.user, comment=payload.validated_data.get("manager_comment", ""))

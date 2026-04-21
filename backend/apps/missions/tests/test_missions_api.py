@@ -114,3 +114,45 @@ class MissionsAPITests(APITestCase):
         self.client.force_authenticate(self.employee)
         resp = self.client.get(reverse("mission-qr", args=[99999]))
         self.assertEqual(resp.status_code, status.HTTP_404_NOT_FOUND)
+
+    # ── Anti-self-approval ─────────────────────────────────────────────
+    def test_manager_cannot_approve_their_own_mission(self):
+        # boss is is_manager but not is_superuser → cannot self-approve.
+        m = Mission.objects.create(
+            user=self.manager, mission_type="REMOTE",
+            date_start=self.today, date_end=self.today,
+        )
+        self.client.force_authenticate(self.manager)
+        resp = self.client.patch(reverse("mission-approve", args=[m.id]))
+        self.assertEqual(resp.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertEqual(resp.data["error"], "SELF_APPROVAL_FORBIDDEN")
+        m.refresh_from_db()
+        self.assertEqual(m.status, "PENDING")
+        self.assertIsNone(m.qr_token)
+
+    def test_superuser_can_approve_their_own_mission(self):
+        chief = UserProfile.objects.create_superuser(
+            username="chief", password="x", email="chief@example.com",
+        )
+        m = Mission.objects.create(
+            user=chief, mission_type="REMOTE",
+            date_start=self.today, date_end=self.today,
+        )
+        self.client.force_authenticate(chief)
+        resp = self.client.patch(reverse("mission-approve", args=[m.id]))
+        self.assertEqual(resp.status_code, status.HTTP_200_OK)
+        self.assertEqual(resp.data["status"], "APPROVED")
+        self.assertTrue(resp.data["qr_token"])
+
+    def test_superuser_can_approve_a_managers_mission(self):
+        chief = UserProfile.objects.create_superuser(
+            username="chief", password="x", email="chief@example.com",
+        )
+        m = Mission.objects.create(
+            user=self.manager, mission_type="FIELD",
+            date_start=self.today, date_end=self.today,
+        )
+        self.client.force_authenticate(chief)
+        resp = self.client.patch(reverse("mission-approve", args=[m.id]))
+        self.assertEqual(resp.status_code, status.HTTP_200_OK)
+        self.assertEqual(resp.data["status"], "APPROVED")
