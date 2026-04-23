@@ -985,16 +985,17 @@ function TeamCalendarTab() {
         cur.setDate(cur.getDate() + 1)
       }
     }
+    // ── Calendrier équipe = SEULEMENT les absents ──────────────────────
+    // Les missions (télétravail / externe) sont visibles dans la « Vue
+    // d'ensemble » et la « Gestion missions ». Ce calendrier doit répondre
+    // à une seule question : « qui est ABSENT et quand ? ». On filtre donc
+    // les statuts (APPROVED + PENDING) pour donner aussi la visibilité sur
+    // les demandes en attente, mais on EXCLUT les statuts REJECTED.
     for (const a of data.absences) {
+      if (a.status === 'REJECTED') continue
       const c = colorFor(a.user_id)
       dayWalk(a.date_start, a.date_end, (d) =>
         pushDay(d, { kind: 'absence', color: c, label: a.username, sub: a.absence_type, status: a.status }),
-      )
-    }
-    for (const m of data.missions) {
-      const c = colorFor(m.user_id)
-      dayWalk(m.date_start, m.date_end, (d) =>
-        pushDay(d, { kind: 'mission', color: c, label: m.username, sub: m.mission_type, status: m.status }),
       )
     }
     return { byDay: map, userColors: colorMap }
@@ -1029,7 +1030,9 @@ function TeamCalendarTab() {
           Aujourd'hui
         </button>
         <span className="ml-auto text-xs text-slate-500">
-          {data?.absences.length || 0} absence(s) · {data?.missions.length || 0} mission(s) · {userColors.size} personne(s) concernée(s)
+          {(data?.absences || []).filter((a) => a.status !== 'REJECTED').length} absence(s)
+          {' · '}
+          {userColors.size} personne(s) concernée(s)
         </span>
       </header>
 
@@ -1079,8 +1082,7 @@ function TeamCalendarTab() {
             <div className="flex flex-wrap gap-2 text-[11px] pt-2 border-t border-white/40">
               <span className="text-slate-500">Légende :</span>
               {[...userColors.entries()].map(([uid, color]) => {
-                const username = data?.absences.find(a => a.user_id === uid)?.username
-                  ?? data?.missions.find(m => m.user_id === uid)?.username
+                const username = data?.absences.find((a) => a.user_id === uid)?.username
                   ?? `#${uid}`
                 return (
                   <span key={uid} className="flex items-center gap-1">
