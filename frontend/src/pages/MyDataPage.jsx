@@ -1,8 +1,6 @@
 import { useEffect, useState } from 'react'
-import { Link, useNavigate } from 'react-router-dom'
-import { tokens } from '../api/axiosInstance'
+import { Link } from 'react-router-dom'
 import * as meApi from '../api/me'
-import { useAuth } from '../hooks/useAuth'
 
 const KIND_LABEL = {
   GPS: 'Géolocalisation',
@@ -11,15 +9,20 @@ const KIND_LABEL = {
 }
 
 export default function MyDataPage() {
-  const { logout } = useAuth()
-  const navigate = useNavigate()
   const [consents, setConsents] = useState(null)
   const [exporting, setExporting] = useState(false)
-  const [deleting, setDeleting] = useState(false)
-  const [confirmDelete, setConfirmDelete] = useState(false)
+  const [pendingRequest, setPendingRequest] = useState(null)
+  const [requestForm, setRequestForm] = useState({ open: false, reason: '' })
+  const [submitting, setSubmitting] = useState(false)
 
   const refreshConsents = () => meApi.consent.get().then(setConsents)
-  useEffect(() => { refreshConsents() }, [])
+  const refreshDeletionRequest = () =>
+    meApi.deletionRequest.get().then((d) => setPendingRequest(d.pending))
+
+  useEffect(() => {
+    refreshConsents()
+    refreshDeletionRequest()
+  }, [])
 
   const toggle = async (kind, granted) => {
     await meApi.consent.set(kind, granted)
@@ -42,16 +45,22 @@ export default function MyDataPage() {
     }
   }
 
-  const deleteAccount = async () => {
-    setDeleting(true)
+  const submitDeletionRequest = async () => {
+    setSubmitting(true)
     try {
-      await meApi.deleteAccount()
-      tokens.clear()
-      await logout().catch(() => {})
-      navigate('/login')
+      const resp = await meApi.deletionRequest.create(requestForm.reason)
+      setPendingRequest(resp.pending)
+      setRequestForm({ open: false, reason: '' })
     } catch (e) {
-      alert(`Erreur : ${e.response?.data?.error || e.message}`)
-      setDeleting(false)
+      const data = e?.response?.data
+      if (data?.error === 'ALREADY_PENDING' && data.request) {
+        setPendingRequest(data.request)
+        setRequestForm({ open: false, reason: '' })
+      } else {
+        alert(`Erreur : ${data?.error || e.message}`)
+      }
+    } finally {
+      setSubmitting(false)
     }
   }
 
@@ -121,43 +130,87 @@ export default function MyDataPage() {
         </button>
       </section>
 
-      {/* Suppression */}
-      <section className="glass rounded-3xl p-5 space-y-3 border-rose-300">
-        <h2 className="font-semibold text-rose-700">Supprimer mon compte <span className="text-xs font-normal text-slate-500">(Art. 32 al. 2 LPD)</span></h2>
+      {/* Demande de suppression RH */}
+      <section className="glass rounded-3xl p-5 space-y-3">
+        <h2 className="font-semibold">
+          Demande de suppression RH
+          <span className="text-xs font-normal text-slate-500 ml-2">(Art. 32 al. 2 LPD)</span>
+        </h2>
         <p className="text-sm text-slate-600">
-          Votre compte sera <strong>anonymisé</strong> immédiatement (nom, email, mot de passe effacés).
-          Les pointages sont conservés à des fins comptables et légales mais rattachés à un identifiant
-          anonyme — plus aucun lien avec vous.
+          La suppression de votre compte engendre la fin effective de votre accès
+          à l'application. Pour éviter qu'un clic accidentel ne soit assimilé à
+          une rupture du contrat, votre demande est <strong>transmise à votre
+          administrateur RH</strong>. Vous resterez actif tant qu'elle n'aura pas
+          été traitée.
         </p>
-        <p className="text-xs text-rose-600">
-          ⚠ Cette action est <strong>irréversible</strong>. Vous serez déconnecté et ne pourrez plus vous reconnecter.
+        <p className="text-xs text-slate-500">
+          Au moment où l'admin l'approuvera, votre compte sera anonymisé
+          (nom, email, mot de passe effacés). Les enregistrements de temps de
+          travail sont conservés à des fins comptables et légales (Art. 73 OLT 1)
+          mais rattachés à un identifiant anonyme — sans lien avec vous.
         </p>
-        {!confirmDelete ? (
+
+        {pendingRequest ? (
+          <div className="glass-soft rounded-2xl p-3 space-y-2 border-l-4 border-amber-500">
+            <p className="text-sm">
+              <strong className="text-amber-700">⏳ Demande en attente</strong>
+              <span className="text-slate-600">
+                {' '}— soumise le{' '}
+                {new Date(pendingRequest.created_at).toLocaleString('fr-FR')}
+              </span>
+            </p>
+            {pendingRequest.user_reason && (
+              <p className="text-xs text-slate-600 italic">
+                Votre motif : « {pendingRequest.user_reason} »
+              </p>
+            )}
+            <p className="text-xs text-slate-500">
+              Vous serez notifié par email lors de la décision. Pour annuler,
+              contactez directement votre administrateur RH.
+            </p>
+          </div>
+        ) : !requestForm.open ? (
           <button
             type="button"
-            onClick={() => setConfirmDelete(true)}
+            onClick={() => setRequestForm({ open: true, reason: '' })}
             className="pill bg-rose-600 text-white"
           >
-            Demander la suppression
+            Faire une demande de suppression RH
           </button>
         ) : (
-          <div className="glass-soft rounded-2xl p-3 space-y-2">
-            <p className="text-sm font-medium">Confirmer la suppression définitive ?</p>
-            <div className="flex gap-2">
+          <div className="glass-soft rounded-2xl p-3 space-y-3">
+            <label className="block text-sm">
+              Motif (optionnel)
+              <textarea
+                className="glass-input w-full mt-1 h-20"
+                placeholder="Ex : départ de l'entreprise au 30/04, retraite, autre…"
+                value={requestForm.reason}
+                onChange={(e) =>
+                  setRequestForm({ ...requestForm, reason: e.target.value })
+                }
+                maxLength={1000}
+              />
+            </label>
+            <p className="text-xs text-slate-500">
+              Votre motif sera visible par l'administrateur RH afin d'orienter
+              le traitement (calcul du solde de tout compte, etc.).
+            </p>
+            <div className="flex gap-2 justify-end">
               <button
                 type="button"
-                onClick={deleteAccount}
-                disabled={deleting}
-                className="pill bg-rose-700 text-white disabled:opacity-50"
-              >
-                {deleting ? 'Suppression…' : 'Oui, supprimer mon compte'}
-              </button>
-              <button
-                type="button"
-                onClick={() => setConfirmDelete(false)}
+                onClick={() => setRequestForm({ open: false, reason: '' })}
+                disabled={submitting}
                 className="px-4 py-2 text-sm"
               >
                 Annuler
+              </button>
+              <button
+                type="button"
+                onClick={submitDeletionRequest}
+                disabled={submitting}
+                className="pill bg-rose-600 text-white disabled:opacity-50"
+              >
+                {submitting ? 'Envoi…' : 'Envoyer la demande à l\'admin RH'}
               </button>
             </div>
           </div>

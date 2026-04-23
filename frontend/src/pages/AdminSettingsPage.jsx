@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom'
 import * as adminApi from '../api/admin'
 import MapPicker from '../components/MapPicker'
 import { useAuth } from '../hooks/useAuth'
+import { useCompany } from '../hooks/useCompany'
 
 export default function AdminSettingsPage() {
   const { user } = useAuth()
@@ -12,19 +13,23 @@ export default function AdminSettingsPage() {
     { id: 'slots', label: 'Plages fixes' },
     { id: 'tolerance', label: 'Arrondis' },
     ...(canEditUsers ? [{ id: 'users', label: 'Utilisateurs' }] : []),
+    ...(canEditUsers ? [{ id: 'company', label: 'Entreprise' }] : []),
+    ...(canEditUsers ? [{ id: 'deletion-requests', label: 'Demandes RGPD' }] : []),
     ...(canEditUsers ? [{ id: 'audit', label: 'Audit' }] : []),
   ]
   const [tab, setTab] = useState('sites')
   return (
-    <div className="max-w-5xl mx-auto p-6">
-      <h1 className="text-2xl font-semibold mb-4">Paramètres</h1>
-      <nav className="flex gap-2 border-b mb-4">
+    <div className="max-w-5xl mx-auto p-3 sm:p-6">
+      <h1 className="text-xl sm:text-2xl font-semibold mb-4">Paramètres</h1>
+      {/* Sur mobile : 7 onglets impossibles à afficher → scroll horizontal.
+          `-mx-3 px-3` étend la zone scrollable bord-à-bord du viewport. */}
+      <nav className="flex gap-2 border-b mb-4 overflow-x-auto -mx-3 px-3 sm:mx-0 sm:px-0">
         {tabs.map((t) => (
           <button
             key={t.id}
             type="button"
             onClick={() => setTab(t.id)}
-            className={`px-4 py-2 text-sm ${
+            className={`px-3 sm:px-4 py-2 text-sm whitespace-nowrap shrink-0 ${
               tab === t.id
                 ? 'border-b-2 border-blue-600 text-blue-700'
                 : 'text-gray-600'
@@ -38,7 +43,500 @@ export default function AdminSettingsPage() {
       {tab === 'slots' && <SlotsTab />}
       {tab === 'tolerance' && <ToleranceTab />}
       {tab === 'users' && canEditUsers && <UsersTab />}
+      {tab === 'company' && canEditUsers && <CompanyTab />}
+      {tab === 'deletion-requests' && canEditUsers && <DeletionRequestsTab />}
       {tab === 'audit' && canEditUsers && <AuditTab />}
+    </div>
+  )
+}
+
+function CompanyTab() {
+  const { refresh: refreshGlobalCompany } = useCompany()
+  const [form, setForm] = useState(null)
+  const [saving, setSaving] = useState(false)
+  const [savedAt, setSavedAt] = useState(null)
+  const [err, setErr] = useState(null)
+
+  const reload = () =>
+    adminApi.company.get().then(setForm).catch((e) => setErr(e.message))
+  useEffect(() => { reload() }, [])
+
+  const set = (patch) => setForm((f) => ({ ...f, ...patch }))
+
+  const onSubmit = async (e) => {
+    e.preventDefault()
+    setSaving(true)
+    setErr(null)
+    try {
+      const updated = await adminApi.company.update(form)
+      setForm(updated)
+      setSavedAt(new Date())
+      // Re-charge le contexte global → couleurs, logo, nom appliqués
+      // immédiatement dans le header / login screen sans reload.
+      await refreshGlobalCompany()
+    } catch (e) {
+      const data = e?.response?.data
+      setErr(data ? JSON.stringify(data) : e.message)
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  // Conversion fichier → data URL avec redimensionnement à 256 px max.
+  // Permet de respecter la limite 200 KB sans avoir à demander à l'admin
+  // de réduire son logo lui-même.
+  const onLogoFile = async (e) => {
+    const file = e.target.files?.[0]
+    if (!file) return
+    setErr(null)
+    try {
+      const dataUrl = await resizeImageToDataUrl(file, 256)
+      set({ logo_data_url: dataUrl })
+    } catch (err) {
+      setErr(`Lecture du fichier impossible : ${err.message}`)
+    }
+  }
+
+  if (!form) return <p className="text-sm text-slate-500">Chargement…</p>
+
+  return (
+    <form onSubmit={onSubmit} className="space-y-5 max-w-2xl">
+      <section className="bg-amber-50 border-l-4 border-amber-400 p-3 text-sm space-y-1">
+        <p className="font-medium text-amber-900">
+          Configuration entreprise
+        </p>
+        <p className="text-amber-800 text-xs">
+          Ces informations sont utilisées par la <strong>politique de
+          confidentialité</strong> (interpolation : nom du responsable, contact
+          DPO, adresse — Art. 14 LPD) et par le <strong>branding</strong> de
+          l'application (logo + couleurs visibles partout, y compris sur la
+          page de connexion).
+        </p>
+      </section>
+
+      {/* ── Identification ── */}
+      <fieldset className="space-y-3">
+        <legend className="font-medium">Identification</legend>
+        <div className="grid grid-cols-2 gap-2">
+          <label className="text-sm col-span-2">
+            Raison sociale
+            <input
+              type="text" className="border rounded p-2 w-full mt-1"
+              value={form.name || ''}
+              onChange={(e) => set({ name: e.target.value })}
+              placeholder="Acme SA"
+            />
+          </label>
+          <label className="text-sm">
+            Forme juridique
+            <input
+              type="text" className="border rounded p-2 w-full mt-1"
+              value={form.legal_form || ''}
+              onChange={(e) => set({ legal_form: e.target.value })}
+              placeholder="SA / Sàrl / AG / GmbH / …"
+            />
+          </label>
+          <label className="text-sm">
+            Pays
+            <input
+              type="text" className="border rounded p-2 w-full mt-1"
+              value={form.country || ''}
+              onChange={(e) => set({ country: e.target.value })}
+            />
+          </label>
+        </div>
+
+        <label className="text-sm block">
+          Adresse
+          <input
+            type="text" className="border rounded p-2 w-full mt-1"
+            value={form.address_line || ''}
+            onChange={(e) => set({ address_line: e.target.value })}
+            placeholder="Rue de l'Industrie 12"
+          />
+        </label>
+        <div className="grid grid-cols-3 gap-2">
+          <label className="text-sm">
+            NPA
+            <input
+              type="text" className="border rounded p-2 w-full mt-1"
+              value={form.postal_code || ''}
+              onChange={(e) => set({ postal_code: e.target.value })}
+              maxLength={10}
+            />
+          </label>
+          <label className="text-sm col-span-2">
+            Ville
+            <input
+              type="text" className="border rounded p-2 w-full mt-1"
+              value={form.city || ''}
+              onChange={(e) => set({ city: e.target.value })}
+            />
+          </label>
+        </div>
+      </fieldset>
+
+      {/* ── Contact protection des données ── */}
+      <fieldset className="space-y-3">
+        <legend className="font-medium">
+          Contact protection des données <span className="text-xs text-slate-500">(Art. 14 LPD)</span>
+        </legend>
+        <div className="grid grid-cols-2 gap-2">
+          <label className="text-sm">
+            Email DPO
+            <input
+              type="email" className="border rounded p-2 w-full mt-1"
+              value={form.dpo_contact_email || ''}
+              onChange={(e) => set({ dpo_contact_email: e.target.value })}
+              placeholder="dpo@entreprise.ch"
+            />
+          </label>
+          <label className="text-sm">
+            Téléphone (optionnel)
+            <input
+              type="tel" className="border rounded p-2 w-full mt-1"
+              value={form.dpo_contact_phone || ''}
+              onChange={(e) => set({ dpo_contact_phone: e.target.value })}
+              placeholder="+41 …"
+            />
+          </label>
+        </div>
+        <label className="text-sm block">
+          Texte additionnel pour la politique de confidentialité (optionnel)
+          <textarea
+            className="border rounded p-2 w-full mt-1 h-24"
+            value={form.privacy_policy_extra || ''}
+            onChange={(e) => set({ privacy_policy_extra: e.target.value })}
+            placeholder="Mentions sectorielles, sous-traitants spécifiques, …"
+          />
+        </label>
+      </fieldset>
+
+      {/* ── Branding ── */}
+      <fieldset className="space-y-3">
+        <legend className="font-medium">Branding</legend>
+        <div className="grid grid-cols-[1fr_120px] gap-3 items-start">
+          <label className="text-sm block">
+            Logo (PNG / JPG / SVG — redimensionné à 256 px max)
+            <input
+              type="file" accept="image/png,image/jpeg,image/svg+xml,image/webp"
+              className="block mt-1 text-xs"
+              onChange={onLogoFile}
+            />
+            {form.logo_data_url && (
+              <button
+                type="button"
+                onClick={() => set({ logo_data_url: '' })}
+                className="text-xs text-rose-700 hover:underline mt-1"
+              >
+                Effacer le logo
+              </button>
+            )}
+          </label>
+          <div className="border rounded p-2 bg-white text-center">
+            <p className="text-[10px] text-slate-500 mb-1">aperçu</p>
+            {form.logo_data_url ? (
+              <img
+                src={form.logo_data_url} alt="logo"
+                className="w-20 h-20 mx-auto object-contain"
+              />
+            ) : (
+              <p className="text-xs text-slate-400">aucun</p>
+            )}
+          </div>
+        </div>
+
+        <div className="grid grid-cols-2 gap-3">
+          <label className="text-sm">
+            Couleur primaire
+            <div className="flex items-center gap-2 mt-1">
+              <input
+                type="color"
+                className="h-10 w-14 border rounded cursor-pointer"
+                value={form.primary_color || '#1e3a5f'}
+                onChange={(e) => set({ primary_color: e.target.value })}
+              />
+              <input
+                type="text"
+                className="border rounded p-2 flex-1 font-mono text-xs"
+                value={form.primary_color || ''}
+                onChange={(e) => set({ primary_color: e.target.value })}
+                placeholder="#1e3a5f"
+                maxLength={9}
+              />
+            </div>
+          </label>
+          <label className="text-sm">
+            Couleur secondaire
+            <div className="flex items-center gap-2 mt-1">
+              <input
+                type="color"
+                className="h-10 w-14 border rounded cursor-pointer"
+                value={form.secondary_color || '#10b981'}
+                onChange={(e) => set({ secondary_color: e.target.value })}
+              />
+              <input
+                type="text"
+                className="border rounded p-2 flex-1 font-mono text-xs"
+                value={form.secondary_color || ''}
+                onChange={(e) => set({ secondary_color: e.target.value })}
+                placeholder="#10b981"
+                maxLength={9}
+              />
+            </div>
+          </label>
+        </div>
+      </fieldset>
+
+      {err && (
+        <p className="text-xs text-rose-700 bg-rose-50 rounded p-2 break-all">
+          ⚠ {err}
+        </p>
+      )}
+      {savedAt && !err && (
+        <p className="text-xs text-emerald-700">
+          ✓ Enregistré à {savedAt.toLocaleTimeString('fr-FR')} — appliqué partout dans l'app.
+        </p>
+      )}
+
+      <div className="flex justify-end">
+        <button
+          type="submit" disabled={saving}
+          className="bg-blue-600 text-white px-5 py-2 rounded disabled:opacity-50"
+        >
+          {saving ? 'Enregistrement…' : 'Enregistrer'}
+        </button>
+      </div>
+    </form>
+  )
+}
+
+/**
+ * Lit un File image, le redimensionne (côté CLIENT — pas d'envoi de gros
+ * fichiers au backend) et renvoie un data URL PNG.
+ * SVG passe tel quel (vectoriel, pas besoin de redimensionner).
+ */
+function resizeImageToDataUrl(file, maxSide) {
+  return new Promise((resolve, reject) => {
+    if (file.type === 'image/svg+xml') {
+      const reader = new FileReader()
+      reader.onload = () => resolve(String(reader.result))
+      reader.onerror = () => reject(new Error('Lecture SVG échouée'))
+      reader.readAsDataURL(file)
+      return
+    }
+    const reader = new FileReader()
+    reader.onload = () => {
+      const img = new Image()
+      img.onload = () => {
+        const ratio = Math.min(1, maxSide / Math.max(img.width, img.height))
+        const w = Math.round(img.width * ratio)
+        const h = Math.round(img.height * ratio)
+        const canvas = document.createElement('canvas')
+        canvas.width = w; canvas.height = h
+        const ctx = canvas.getContext('2d')
+        ctx.drawImage(img, 0, 0, w, h)
+        // PNG préserve la transparence. Quality 0.9 négligé en PNG.
+        resolve(canvas.toDataURL('image/png'))
+      }
+      img.onerror = () => reject(new Error('Image illisible'))
+      img.src = reader.result
+    }
+    reader.onerror = () => reject(new Error('Lecture du fichier échouée'))
+    reader.readAsDataURL(file)
+  })
+}
+
+function DeletionRequestsTab() {
+  const [rows, setRows] = useState([])
+  const [loading, setLoading] = useState(true)
+  const [filter, setFilter] = useState('PENDING')
+  const [decisionFor, setDecisionFor] = useState(null) // {req, action:'approve'|'reject'}
+
+  const refresh = () => {
+    setLoading(true)
+    adminApi.deletionRequests
+      .list(filter === 'ALL' ? '' : filter)
+      .then((d) => setRows(d.results || []))
+      .finally(() => setLoading(false))
+  }
+  useEffect(refresh, [filter])
+
+  const fmt = (iso) => new Date(iso).toLocaleString('fr-FR')
+  const badge = {
+    PENDING: 'bg-amber-100 text-amber-800',
+    APPROVED: 'bg-emerald-100 text-emerald-800',
+    REJECTED: 'bg-slate-200 text-slate-700',
+  }
+
+  return (
+    <div className="space-y-4">
+      <div className="bg-blue-50 border-l-4 border-blue-400 p-3 text-sm space-y-1">
+        <p className="font-medium text-blue-900">
+          Inbox RH — demandes de suppression de compte (Art. 32 al. 2 LPD)
+        </p>
+        <p className="text-blue-800 text-xs">
+          <strong>Approuver</strong> déclenche immédiatement l'anonymisation
+          du compte (nom, email, mot de passe effacés, username remplacé par
+          <code> deleted_N</code>). Les pointages sont préservés mais anonymes.
+          À faire <u>après</u> la sortie effective du collaborateur (solde de
+          tout compte réglé). <strong>Refuser</strong> trace la décision avec
+          un motif — à utiliser si la demande est prématurée ou doit passer
+          par le SIRH.
+        </p>
+      </div>
+
+      <div className="flex gap-2">
+        {['PENDING', 'APPROVED', 'REJECTED', 'ALL'].map((s) => (
+          <button
+            key={s}
+            type="button"
+            onClick={() => setFilter(s)}
+            className={`text-xs px-3 py-1 rounded-full ${
+              filter === s ? 'bg-slate-900 text-white' : 'bg-white border'
+            }`}
+          >
+            {s === 'ALL' ? 'Tout' : s === 'PENDING' ? 'En attente' : s === 'APPROVED' ? 'Approuvées' : 'Refusées'}
+          </button>
+        ))}
+      </div>
+
+      {loading ? (
+        <p className="text-sm text-slate-500">Chargement…</p>
+      ) : rows.length === 0 ? (
+        <p className="text-sm text-slate-500 bg-slate-50 rounded p-4 text-center">
+          Aucune demande pour ce filtre.
+        </p>
+      ) : (
+        <ul className="space-y-2">
+          {rows.map((r) => (
+            <li key={r.id} className="bg-white border rounded-lg p-3 space-y-2">
+              <div className="flex flex-wrap items-center gap-3 text-sm">
+                <span className="font-mono text-xs text-slate-500">#{r.id}</span>
+                <span className="font-semibold">{r.username}</span>
+                <span className="text-slate-400">·</span>
+                <span className="text-xs text-slate-500">
+                  soumise le {fmt(r.created_at)}
+                </span>
+                <span className={`text-xs px-2 py-0.5 rounded-full ${badge[r.status]}`}>
+                  {r.status}
+                </span>
+              </div>
+              {r.user_reason && (
+                <p className="text-sm text-slate-700 bg-slate-50 rounded px-2 py-1 italic">
+                  💬 « {r.user_reason} »
+                </p>
+              )}
+              {r.admin_comment && (
+                <p className="text-sm text-slate-700 bg-blue-50 rounded px-2 py-1">
+                  <span className="text-xs text-slate-500">Admin ({r.decided_by_username}) :</span>{' '}
+                  {r.admin_comment}
+                </p>
+              )}
+              {r.status === 'PENDING' && (
+                <div className="flex gap-2 pt-1">
+                  <button
+                    type="button"
+                    onClick={() => setDecisionFor({ req: r, action: 'approve' })}
+                    className="text-xs px-3 py-1 rounded bg-rose-600 text-white"
+                    title="Anonymise le compte maintenant"
+                  >
+                    ✓ Approuver + anonymiser
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setDecisionFor({ req: r, action: 'reject' })}
+                    className="text-xs px-3 py-1 rounded bg-slate-200"
+                  >
+                    ✕ Refuser
+                  </button>
+                </div>
+              )}
+            </li>
+          ))}
+        </ul>
+      )}
+
+      {decisionFor && (
+        <DeletionDecisionModal
+          req={decisionFor.req}
+          action={decisionFor.action}
+          onClose={() => setDecisionFor(null)}
+          onSaved={() => { setDecisionFor(null); refresh() }}
+        />
+      )}
+    </div>
+  )
+}
+
+function DeletionDecisionModal({ req, action, onClose, onSaved }) {
+  const [comment, setComment] = useState('')
+  const [saving, setSaving] = useState(false)
+  const [err, setErr] = useState(null)
+
+  const submit = async () => {
+    setSaving(true)
+    setErr(null)
+    try {
+      await adminApi.deletionRequests.decide(req.id, action, comment)
+      onSaved()
+    } catch (e) {
+      setErr(e?.response?.data?.error || e.message)
+      setSaving(false)
+    }
+  }
+
+  const destructive = action === 'approve'
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-3" role="dialog">
+      <div className="absolute inset-0 bg-slate-900/40" onClick={onClose} aria-hidden />
+      <div className="relative bg-white rounded-2xl shadow-xl w-full max-w-md p-5 space-y-3">
+        <h3 className="font-semibold">
+          {destructive ? '⚠ Approuver et anonymiser' : 'Refuser la demande'}
+          {' '}de <span className="font-mono">{req.username}</span>
+        </h3>
+        {destructive && (
+          <p className="text-xs text-rose-700 bg-rose-50 rounded p-2">
+            Cette action va <strong>anonymiser immédiatement</strong> le compte.
+            Le collaborateur ne pourra plus se connecter. Les pointages sont
+            préservés mais rattachés à <code>deleted_N</code>. Action
+            irréversible — à faire uniquement après sa sortie effective.
+          </p>
+        )}
+        <label className="block text-sm">
+          Commentaire {destructive ? '(optionnel)' : '(motif du refus)'}
+          <textarea
+            className="w-full border rounded p-2 mt-1 h-24 text-sm"
+            placeholder={destructive
+              ? 'Ex : STC effectué le 30/04, accès retiré'
+              : 'Ex : demande prématurée, le collaborateur est encore en préavis'
+            }
+            value={comment}
+            onChange={(e) => setComment(e.target.value)}
+            maxLength={1000}
+          />
+        </label>
+        {err && <p className="text-xs text-rose-700 bg-rose-50 rounded p-2">⚠ {err}</p>}
+        <div className="flex gap-2 justify-end">
+          <button
+            type="button"
+            onClick={onClose}
+            disabled={saving}
+            className="px-4 py-2 text-sm"
+          >Annuler</button>
+          <button
+            type="button"
+            onClick={submit}
+            disabled={saving}
+            className={`px-4 py-2 text-sm text-white rounded disabled:opacity-50 ${
+              destructive ? 'bg-rose-600' : 'bg-slate-700'
+            }`}
+          >
+            {saving ? 'Traitement…' : destructive ? 'Anonymiser maintenant' : 'Refuser'}
+          </button>
+        </div>
+      </div>
     </div>
   )
 }
@@ -118,7 +616,8 @@ function AuditTab() {
           <p className="text-xs text-slate-500">
             {data.count} événement(s) affichés (limite : {data.limit}). Append-only — non modifiable.
           </p>
-          <table className="w-full text-xs bg-white border">
+          <div className="overflow-x-auto -mx-3 sm:mx-0">
+          <table className="min-w-[720px] sm:min-w-0 w-full text-xs bg-white border">
             <thead className="bg-gray-50 text-left">
               <tr>
                 <th className="p-2">Quand</th>
@@ -156,6 +655,7 @@ function AuditTab() {
               ))}
             </tbody>
           </table>
+          </div>
         </>
       )}
     </div>
@@ -191,13 +691,13 @@ function SitesTab() {
 
       <ul className="divide-y border rounded bg-white">
         {sites.map((s) => (
-          <li key={s.id} className="p-3 flex items-center gap-3 text-sm">
-            <span className="font-semibold w-40">{s.name}</span>
+          <li key={s.id} className="p-3 flex flex-wrap items-center gap-x-3 gap-y-2 text-sm">
+            <span className="font-semibold w-32 sm:w-40 truncate">{s.name}</span>
             <span className="text-gray-500 font-mono text-xs">
               {Number(s.latitude).toFixed(4)}, {Number(s.longitude).toFixed(4)}
             </span>
             <span className="text-gray-500">±{s.gps_radius_meters}m</span>
-            <span className="ml-auto flex gap-2">
+            <span className="ml-auto flex flex-wrap gap-2">
               <button
                 type="button"
                 onClick={() => setEditing({ ...s })}
@@ -465,6 +965,8 @@ function UsersTab() {
     username: '', password: '', weekly_target_hours: 42, vacation_quota: 25,
     is_manager: false, is_mission_manager: false, home_site: '',
   })
+  // Modal d'édition du domicile sur carte (null si fermée).
+  const [homeEditing, setHomeEditing] = useState(null)
 
   const refresh = () => adminApi.users.list().then((d) => setUsers(d.results || d))
   useEffect(() => {
@@ -473,10 +975,17 @@ function UsersTab() {
   }, [])
 
   const updateField = async (id, field, value) => {
-    await adminApi.users.update(id, { [field]: value === '' ? null : value })
-    setUsers((prev) =>
-      prev.map((u) => (u.id === id ? { ...u, [field]: value === '' ? null : value } : u)),
-    )
+    // Le backend renvoie l'objet à jour — on s'en sert pour récupérer aussi
+    // les champs recalculés côté serveur (notamment standard_commute_minutes
+    // après changement de home_lat/home_lon ou home_site).
+    const payload = { [field]: value === '' ? null : value }
+    const updated = await adminApi.users.update(id, payload)
+    setUsers((prev) => prev.map((u) => (u.id === id ? { ...u, ...updated } : u)))
+  }
+
+  const updateMany = async (id, payload) => {
+    const updated = await adminApi.users.update(id, payload)
+    setUsers((prev) => prev.map((u) => (u.id === id ? { ...u, ...updated } : u)))
   }
 
   const onCreate = async (e) => {
@@ -528,12 +1037,17 @@ function UsersTab() {
         </button>
       </form>
 
-      <table className="w-full text-sm border bg-white">
+      {/* Table users : 10 colonnes (#ID, username, site, domicile, trajet,
+          h/sem, congés, manager, mission_mgr, action). Largement >402 px → scroll. */}
+      <div className="overflow-x-auto -mx-3 sm:mx-0">
+      <table className="min-w-[900px] sm:min-w-0 w-full text-sm border bg-white">
         <thead className="bg-gray-50 text-left">
           <tr>
             <th className="p-2 font-mono text-xs">ID</th>
             <th className="p-2">Utilisateur</th>
             <th className="p-2">Site</th>
+            <th className="p-2" title="Domicile sélectionné sur carte">🏠 Domicile</th>
+            <th className="p-2" title="Trajet domicile → site, ALLER simple, en minutes">🚗 Trajet</th>
             <th className="p-2">Heures/sem</th>
             <th className="p-2">Quota congés</th>
             <th className="p-2">Manager</th>
@@ -575,6 +1089,44 @@ function UsersTab() {
                   <option value="">—</option>
                   {sites.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
                 </select>
+              </td>
+              <td className="p-2">
+                {/* Domicile : badge cliquable qui ouvre la modal MapPicker. */}
+                <button
+                  type="button"
+                  onClick={() => !isAnonymized && setHomeEditing(u)}
+                  disabled={isAnonymized}
+                  className={`text-xs px-2 py-1 rounded border ${
+                    u.home_lat != null && u.home_lon != null
+                      ? 'bg-emerald-50 text-emerald-700 border-emerald-300'
+                      : 'bg-amber-50 text-amber-700 border-amber-300'
+                  } ${isAnonymized ? 'opacity-50 cursor-not-allowed' : 'hover:bg-blue-50'}`}
+                  title={
+                    u.home_lat != null
+                      ? `lat ${Number(u.home_lat).toFixed(4)}, lon ${Number(u.home_lon).toFixed(4)}`
+                      : 'Cliquer pour définir sur la carte'
+                  }
+                >
+                  {u.home_lat != null ? '📍 défini' : '+ définir'}
+                </button>
+              </td>
+              <td className="p-2">
+                {/* Trajet : éditable manuellement, badge "auto" sinon. */}
+                <input
+                  type="number" min="0" max="999"
+                  className="border rounded p-1 w-16 text-right"
+                  defaultValue={u.standard_commute_minutes ?? ''}
+                  placeholder="—"
+                  disabled={isAnonymized}
+                  onBlur={(e) => {
+                    const v = e.target.value === '' ? null : Number(e.target.value)
+                    if (v !== (u.standard_commute_minutes ?? null)) {
+                      updateField(u.id, 'standard_commute_minutes', v)
+                    }
+                  }}
+                  title="Trajet aller simple en minutes (×2 pour A/R dans les calculs)"
+                />
+                <span className="text-[10px] text-slate-500 ml-1">min</span>
               </td>
               <td className="p-2">
                 <input
@@ -619,6 +1171,132 @@ function UsersTab() {
           )})}
         </tbody>
       </table>
+      </div>
+
+      {homeEditing && (
+        <HomeAddressModal
+          user={homeEditing}
+          siteCenter={(() => {
+            const s = sites.find((x) => x.id === homeEditing.home_site)
+            return s ? [Number(s.latitude), Number(s.longitude)] : null
+          })()}
+          onClose={() => setHomeEditing(null)}
+          onSave={async (lat, lon) => {
+            await updateMany(homeEditing.id, { home_lat: lat, home_lon: lon })
+            setHomeEditing(null)
+          }}
+          onClear={async () => {
+            await updateMany(homeEditing.id, { home_lat: null, home_lon: null })
+            setHomeEditing(null)
+          }}
+        />
+      )}
+    </div>
+  )
+}
+
+function HomeAddressModal({ user, siteCenter, onClose, onSave, onClear }) {
+  // Important : on stocke et envoie des valeurs ARRONDIES à 6 décimales.
+  // Leaflet renvoie des floats à 13-15 décimales, mais le DecimalField
+  // côté backend (max_digits=9, decimal_places=6) refuse au-delà.
+  const round6 = (n) => (n == null ? null : Number(Number(n).toFixed(6)))
+  const [lat, setLat] = useState(round6(user.home_lat))
+  const [lon, setLon] = useState(round6(user.home_lon))
+  const [saving, setSaving] = useState(false)
+  const [err, setErr] = useState(null)
+
+  const submit = async () => {
+    if (lat == null || lon == null) return
+    setSaving(true)
+    setErr(null)
+    try {
+      await onSave(round6(lat), round6(lon))
+    } catch (e) {
+      // Surface l'erreur réseau / 400 / 403 pour qu'elle ne reste pas
+      // dans la console et que le bouton n'ait pas l'air mort.
+      setErr(
+        e?.response?.data
+          ? JSON.stringify(e.response.data)
+          : e?.message || 'Erreur inconnue',
+      )
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  const clear = async () => {
+    if (!window.confirm('Effacer le domicile de ce collaborateur ?')) return
+    setSaving(true)
+    setErr(null)
+    try {
+      await onClear()
+    } catch (e) {
+      setErr(
+        e?.response?.data
+          ? JSON.stringify(e.response.data)
+          : e?.message || 'Erreur inconnue',
+      )
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-3" role="dialog">
+      <div className="absolute inset-0 bg-slate-900/40" onClick={onClose} aria-hidden />
+      <div className="relative bg-white rounded-2xl shadow-xl w-full max-w-2xl p-5 space-y-3 max-h-[90vh] overflow-y-auto">
+        <div className="flex items-center justify-between">
+          <h3 className="font-semibold">
+            Domicile de <span className="font-mono">{user.username}</span>
+          </h3>
+          <button type="button" onClick={onClose} className="w-8 h-8 rounded hover:bg-slate-100">✕</button>
+        </div>
+        <p className="text-xs text-slate-600">
+          Cliquez sur la carte pour positionner le domicile du collaborateur.
+          Le trajet domicile → site sera recalculé automatiquement à l'enregistrement
+          (sauf si vous avez saisi manuellement le temps standard de trajet).
+        </p>
+        <MapPicker
+          lat={lat ?? undefined}
+          lon={lon ?? undefined}
+          defaultCenter={siteCenter}
+          onPick={(la, lo) => { setLat(round6(la)); setLon(round6(lo)) }}
+          height={380}
+        />
+        <div className="text-xs text-slate-600 font-mono">
+          {lat != null && lon != null
+            ? `lat ${lat.toFixed(6)}, lon ${lon.toFixed(6)}`
+            : 'Aucun point sélectionné'}
+        </div>
+        {err && (
+          <p className="text-xs text-rose-700 bg-rose-50 rounded px-2 py-1 break-all">
+            ⚠ {err}
+          </p>
+        )}
+        <div className="flex justify-between gap-2 pt-1">
+          {user.home_lat != null ? (
+            <button
+              type="button" onClick={clear} disabled={saving}
+              className="text-sm px-3 py-2 rounded text-rose-700 hover:bg-rose-50"
+            >
+              Effacer le domicile
+            </button>
+          ) : <span />}
+          <div className="flex gap-2 ml-auto">
+            <button
+              type="button" onClick={onClose} disabled={saving}
+              className="px-4 py-2 text-sm"
+            >Annuler</button>
+            <button
+              type="button" onClick={submit}
+              disabled={saving || lat == null || lon == null}
+              className="px-4 py-2 text-sm rounded bg-blue-600 text-white disabled:opacity-50"
+            >
+              {saving ? 'Enregistrement…' : 'Enregistrer'}
+            </button>
+          </div>
+        </div>
+      </div>
     </div>
   )
 }

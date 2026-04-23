@@ -2,12 +2,16 @@ import { useEffect, useState } from 'react'
 import { NavLink, Outlet, useNavigate } from 'react-router-dom'
 import * as managerApi from '../api/manager'
 import { useAuth } from '../hooks/useAuth'
+import { useCompany } from '../hooks/useCompany'
 
 export default function AppLayout() {
   const { user, logout } = useAuth()
+  const { company } = useCompany()
   const navigate = useNavigate()
   const [menuOpen, setMenuOpen] = useState(false)
   const [alertCount, setAlertCount] = useState(0)
+  const brandLogo = company?.logo_data_url || '/logo.png'
+  const brandName = company?.name || 'qrtime.ch'
 
   // Poll the alerts count every 60s for managers/superusers (used by drawer badge).
   useEffect(() => {
@@ -57,14 +61,14 @@ export default function AppLayout() {
           </button>
           <NavLink to="/" className="font-semibold tracking-tight flex-1 truncate flex items-center gap-2 min-w-0">
             <img
-              src="/logo.png"
+              src={brandLogo}
               alt=""
               aria-hidden="true"
               width="28" height="28"
               className="w-7 h-7 shrink-0 object-contain"
               onError={(e) => { e.currentTarget.style.display = 'none' }}
             />
-            <span className="truncate">qrtime.ch</span>
+            <span className="truncate">{brandName}</span>
           </NavLink>
           <span className="text-xs text-slate-500 truncate max-w-[8rem]">
             {user?.username}
@@ -73,9 +77,11 @@ export default function AppLayout() {
         </div>
       </header>
 
-      <main className="pb-24">
+      <main className="pb-28">
         <Outlet />
       </main>
+
+      <PoweredByFooter />
 
       {menuOpen && (
         <Drawer
@@ -86,6 +92,30 @@ export default function AppLayout() {
         />
       )}
     </>
+  )
+}
+
+/**
+ * Mention "Powered by QRtime.ch" affichée en bas de toutes les pages
+ * authentifiées. `safe-bottom` ajoute le padding pour la home indicator
+ * iPhone (env(safe-area-inset-bottom)). Très discret pour ne pas voler
+ * la vedette au branding du client (qui peut customiser logo + couleurs).
+ */
+function PoweredByFooter() {
+  return (
+    <footer className="fixed bottom-0 left-0 right-0 pointer-events-none safe-bottom z-10">
+      <div className="text-center text-[10px] tracking-wide text-slate-400 py-1.5 pointer-events-auto">
+        Powered by{' '}
+        <a
+          href="https://qrtime.ch"
+          target="_blank"
+          rel="noreferrer"
+          className="text-slate-500 hover:text-slate-700 transition-colors"
+        >
+          QRtime.ch
+        </a>
+      </div>
+    </footer>
   )
 }
 

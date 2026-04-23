@@ -9,7 +9,9 @@ export default defineConfig({
     host: '0.0.0.0',
     port: 5173,
     proxy: {
-      '/api': 'http://localhost:8000',
+      // Cible le port exposé par le backend (8002 par défaut côté Docker dev,
+      // 8000 si on lance le runserver Django direct).
+      '/api': process.env.VITE_API_PROXY || 'http://localhost:8002',
     },
   },
   build: {

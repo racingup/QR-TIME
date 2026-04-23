@@ -1,14 +1,18 @@
 import { useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { useAuth } from '../hooks/useAuth'
+import { useCompany } from '../hooks/useCompany'
 
 export default function LoginPage() {
   const { login } = useAuth()
+  const { company } = useCompany()
   const navigate = useNavigate()
   const [username, setUsername] = useState('')
   const [password, setPassword] = useState('')
   const [error, setError] = useState(null)
   const [submitting, setSubmitting] = useState(false)
+  const brandLogo = company?.logo_data_url || '/logo.png'
+  const brandName = company?.name || 'qrtime.ch'
 
   const onSubmit = async (e) => {
     e.preventDefault()
@@ -31,13 +35,13 @@ export default function LoginPage() {
         <form onSubmit={onSubmit} className="glass-strong rounded-3xl p-6 w-full max-w-sm space-y-4">
           <div className="text-center">
             <img
-              src="/logo.png"
-              alt="qrtime.ch"
+              src={brandLogo}
+              alt={brandName}
               width="72" height="72"
               className="mx-auto w-18 h-18 object-contain"
               onError={(e) => { e.currentTarget.style.display = 'none' }}
             />
-            <p className="text-xs uppercase tracking-widest text-slate-500 mt-3">qrtime.ch</p>
+            <p className="text-xs uppercase tracking-widest text-slate-500 mt-3">{brandName}</p>
             <h1 className="text-2xl font-semibold tracking-tight mt-1">Connexion</h1>
           </div>
           <input
@@ -70,6 +74,17 @@ export default function LoginPage() {
           </p>
         </form>
       </div>
+      <p className="fixed bottom-0 left-0 right-0 text-center text-[10px] tracking-wide text-slate-400 py-1.5 safe-bottom pointer-events-none">
+        Powered by{' '}
+        <a
+          href="https://qrtime.ch"
+          target="_blank"
+          rel="noreferrer"
+          className="text-slate-500 hover:text-slate-700 pointer-events-auto"
+        >
+          QRtime.ch
+        </a>
+      </p>
     </>
   )
 }

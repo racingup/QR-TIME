@@ -39,3 +39,20 @@ export const users = {
 export const audit = {
   list: (params) => api.get('/admin/audit/', { params }).then((r) => r.data),
 }
+
+export const company = {
+  get: () => api.get('/admin/company-settings/').then((r) => r.data),
+  update: (data) => api.put('/admin/company-settings/', data).then((r) => r.data),
+}
+
+// Workflow LPD : inbox des demandes de suppression compte (côté admin/RH).
+export const deletionRequests = {
+  list: (status) =>
+    api
+      .get('/admin/deletion-requests/', { params: status ? { status } : {} })
+      .then((r) => r.data),
+  decide: (id, decision, comment = '') =>
+    api
+      .patch(`/admin/deletion-requests/${id}/`, { decision, comment })
+      .then((r) => r.data),
+}

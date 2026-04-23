@@ -182,13 +182,19 @@ function fmt(iso) {
 }
 
 function FabCluster({ onScan, onAbsence }) {
+  // Cluster aligné en COLONNE CENTRÉE (items-center) plutôt que sur le bord
+  // droit (items-end) : les deux boutons partagent le même axe vertical, le
+  // « + » apparaît comme satellite propre du gros bouton QR sans décalage
+  // visuel disgracieux.
+  // QR = action n°1 de l'app → 80px + couleur marque + ring + label.
   return (
-    <div className="fixed bottom-6 right-4 safe-bottom flex flex-col items-end gap-3 z-30">
+    <div className="fixed bottom-6 right-4 safe-bottom flex flex-col items-center gap-3 z-30">
       <button
         type="button"
         onClick={onAbsence}
-        className="press w-12 h-12 rounded-full glass-strong text-slate-900 flex items-center justify-center shadow-lg"
+        className="press w-12 h-12 rounded-full glass-strong text-slate-900 flex items-center justify-center shadow-lg ring-1 ring-slate-200"
         aria-label="Demander une absence"
+        title="Demander une absence"
       >
         <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round">
           <path d="M12 5v14M5 12h14" />
@@ -197,15 +203,17 @@ function FabCluster({ onScan, onAbsence }) {
       <button
         type="button"
         onClick={onScan}
-        className="press w-16 h-16 rounded-full bg-slate-900 text-white flex items-center justify-center shadow-2xl shadow-slate-900/40"
-        aria-label="Scanner un QR"
+        className="press w-20 h-20 rounded-full bg-slate-900 text-white flex flex-col items-center justify-center shadow-2xl shadow-slate-900/50 ring-4 ring-white"
+        aria-label="Scanner un QR pour pointer"
+        title="Pointer (scanner un QR)"
       >
-        <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+        <svg width="34" height="34" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
           <rect x="3" y="3" width="7" height="7" rx="1" />
           <rect x="14" y="3" width="7" height="7" rx="1" />
           <rect x="3" y="14" width="7" height="7" rx="1" />
           <path d="M14 14h3v3M21 14h-1M14 17v4M17 21h4M17 17h.01M21 21h.01" />
         </svg>
+        <span className="text-[9px] font-medium tracking-wide mt-0.5">POINTER</span>
       </button>
     </div>
   )

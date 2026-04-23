@@ -76,7 +76,14 @@ export default function MissionAdminPage() {
         .filter((u) => !u.is_superuser)
         // Anti-self : un manager n'attribue jamais à lui-même.
         .filter((u) => isSuperUser || Number(u.id) !== Number(me?.id ?? -1))
-        .map((u) => ({ id: u.id, username: u.username })),
+        .map((u) => ({
+          id: u.id,
+          username: u.username,
+          // Coords du site de rattachement — utilisées pour pré-centrer
+          // la carte de sélection du lieu de mission.
+          home_site_latitude: u.home_site_latitude,
+          home_site_longitude: u.home_site_longitude,
+        })),
     [users, isSuperUser, me?.id],
   )
 
@@ -182,9 +189,30 @@ export default function MissionAdminPage() {
                   {m.status}
                 </span>
                 <span className="ml-auto text-xs text-slate-600">
-                  ⏱ {fmtDuration(m.time_spent_minutes)} pointé
+                  ⏱ {fmtDuration(m.time_spent_minutes)}
                 </span>
               </div>
+              {/* Trajet pro Art. 13 al. 3 OLT 1 — affiché si la mission a été
+                  approuvée et que le calcul a abouti. */}
+              {m.mission_type === 'FIELD' && m.travel_minutes_actual != null && (
+                <div className="text-xs text-slate-600 bg-indigo-50/50 rounded px-2 py-1 flex flex-wrap items-center gap-2">
+                  🚗 Trajet :
+                  <span><strong>{m.travel_minutes_actual}</strong> min aller</span>
+                  <span className="text-slate-400">−</span>
+                  <span>standard <strong>{m.standard_commute_minutes ?? 0}</strong> min</span>
+                  <span className="text-slate-400">·</span>
+                  <span className="font-medium text-indigo-800">
+                    = {m.travel_minutes_compensable} min A/R compensé
+                  </span>
+                </div>
+              )}
+              {m.mission_type === 'FIELD' && m.status === 'APPROVED'
+                && m.travel_minutes_actual == null && !m.user_has_home_address && (
+                <p className="text-xs text-amber-700 bg-amber-50/60 rounded px-2 py-1">
+                  ⚠ Domicile du collaborateur non défini — trajet pro non comptabilisé.
+                  Définissez son adresse dans Paramètres → Utilisateurs.
+                </p>
+              )}
               {(m.user_comment || m.manager_comment) && (
                 <div className="space-y-1 text-xs">
                   {m.user_comment && (
@@ -382,6 +410,16 @@ function AssignModal({ users, onClose, onSaved, fieldOnly = false }) {
             lat={form.location_lat ? Number(form.location_lat) : undefined}
             lon={form.location_lon ? Number(form.location_lon) : undefined}
             radius={Number(form.gps_radius_meters)}
+            // Centre par défaut : site de rattachement du collaborateur ciblé
+            // (récupéré dans `users` via form.user_id). Évite que la carte
+            // s'ouvre sur un point arbitraire — l'admin clique près du site.
+            defaultCenter={(() => {
+              const target = users.find((u) => Number(u.id) === Number(form.user_id))
+              if (target?.home_site_latitude != null && target?.home_site_longitude != null) {
+                return [Number(target.home_site_latitude), Number(target.home_site_longitude)]
+              }
+              return undefined
+            })()}
             onPick={(lat, lon) =>
               setForm({ ...form, location_lat: lat.toFixed(6), location_lon: lon.toFixed(6) })
             }
@@ -509,6 +547,19 @@ function DetailEditModal({ mission, onClose, onSaved, onShowQr, fieldOnly = fals
             lat={form.location_lat ? Number(form.location_lat) : undefined}
             lon={form.location_lon ? Number(form.location_lon) : undefined}
             radius={Number(form.gps_radius_meters)}
+            // Centre par défaut : site de rattachement du collaborateur de
+            // cette mission (exposé par MissionSerializer en lecture seule).
+            // Utile quand la mission n'a pas encore de coords (édition d'une
+            // mission REMOTE qu'on bascule en FIELD).
+            defaultCenter={
+              mission.user_home_site_latitude != null
+                && mission.user_home_site_longitude != null
+                ? [
+                    Number(mission.user_home_site_latitude),
+                    Number(mission.user_home_site_longitude),
+                  ]
+                : undefined
+            }
             onPick={(lat, lon) =>
               setForm({ ...form, location_lat: lat.toFixed(6), location_lon: lon.toFixed(6) })
             }

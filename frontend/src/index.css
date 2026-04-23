@@ -11,6 +11,12 @@
   --ice-100: #edf4fb;
   --ice-tint: 226, 240, 253;          /* bleu glacier très pâle */
   --glass-border: 255, 255, 255;
+  /* Couleurs de marque — surchargées au boot par CompanyProvider via
+     `:root { --brand-primary: …; --brand-secondary: …; }`. Utilisable
+     dans les composants par `style={{ background: 'var(--brand-primary)' }}`
+     ou via Tailwind arbitrary value `bg-[color:var(--brand-primary)]`. */
+  --brand-primary: #1e3a5f;
+  --brand-secondary: #10b981;
 }
 
 html, body {

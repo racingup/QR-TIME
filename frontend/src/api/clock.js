@@ -19,5 +19,7 @@ export const regularize = (id, clockOut) =>
     .then((r) => r.data)
 export const editSession = (id, data) =>
   api.patch(`/clock/${id}/edit/`, data).then((r) => r.data)
+export const deleteSession = (id) =>
+  api.delete(`/clock/${id}/delete/`).then((r) => r.data)
 export const manualSession = (data) =>
   api.post('/clock/manual/', data).then((r) => r.data)

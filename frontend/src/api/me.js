@@ -11,5 +11,14 @@ export const consent = {
 }
 
 export const exportData = () => api.get('/me/export/').then((r) => r.data)
-export const deleteAccount = () =>
-  api.post('/me/delete-account/', { confirm: 'DELETE' }).then((r) => r.data)
+
+// Workflow LPD : on ne supprime PAS direct (cf. /me/delete-account/ qui
+// pointait avant vers anonymize_user). On crée une *demande* que l'admin/RH
+// validera. L'employé voit son statut PENDING en attendant.
+export const deletionRequest = {
+  get: () => api.get('/me/deletion-request/').then((r) => r.data),
+  create: (reason = '') =>
+    api
+      .post('/me/deletion-request/', { confirm: 'DELETE', reason })
+      .then((r) => r.data),
+}

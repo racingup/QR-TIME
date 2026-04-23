@@ -1,6 +1,7 @@
 import { Navigate, Route, BrowserRouter as Router, Routes } from 'react-router-dom'
 import AppLayout from './layouts/AppLayout'
 import { AuthProvider, useAuth } from './hooks/useAuth'
+import { CompanyProvider } from './hooks/useCompany'
 import AdminSettingsPage from './pages/AdminSettingsPage'
 import CalendarPage from './pages/CalendarPage'
 import DayDetailPage from './pages/DayDetailPage'
@@ -59,6 +60,7 @@ function RequireMissionManager({ children }) {
 export default function App() {
   return (
     <Router>
+      <CompanyProvider>
       <AuthProvider>
         <Routes>
           <Route path="/login" element={<LoginPage />} />
@@ -91,6 +93,7 @@ export default function App() {
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
       </AuthProvider>
+      </CompanyProvider>
     </Router>
   )
 }

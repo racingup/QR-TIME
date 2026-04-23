@@ -18,15 +18,17 @@ const TABS = [
 export default function ManagerDashboard() {
   const [tab, setTab] = useState('overview')
   return (
-    <div className="max-w-5xl mx-auto p-6">
-      <h1 className="text-2xl font-semibold mb-4">Tableau de bord manager</h1>
-      <nav className="flex gap-2 border-b mb-4">
+    <div className="max-w-5xl mx-auto p-3 sm:p-6">
+      <h1 className="text-xl sm:text-2xl font-semibold mb-4">Tableau de bord manager</h1>
+      {/* Sur mobile : padding réduit + scroll horizontal des tabs.
+          `-mx-3 px-3` étend la zone scrollable bord-à-bord. */}
+      <nav className="flex gap-2 border-b mb-4 overflow-x-auto -mx-3 px-3 sm:mx-0 sm:px-0">
         {TABS.map((t) => (
           <button
             key={t.id}
             type="button"
             onClick={() => setTab(t.id)}
-            className={`px-4 py-2 text-sm ${
+            className={`px-3 sm:px-4 py-2 text-sm whitespace-nowrap shrink-0 ${
               tab === t.id
                 ? 'border-b-2 border-blue-600 text-blue-700'
                 : 'text-gray-600'
@@ -623,18 +625,26 @@ function ApproveMissionModal({ mission, onClose, onSaved }) {
           {mission.location_name && <> · {mission.location_name}</>}
         </p>
         {mission.mission_type === 'FIELD' && (
-          <label className="block text-sm">
-            Rayon GPS de validation (m)
-            <input
-              type="number" min="50"
-              className="w-full border rounded p-2 mt-1"
-              value={radius}
-              onChange={(e) => setRadius(e.target.value)}
-            />
-            <span className="text-xs text-gray-500">
-              Demandé par l'employé : {mission.gps_radius_meters || 'non spécifié'}
-            </span>
-          </label>
+          <>
+            <label className="block text-sm">
+              Rayon GPS de validation (m)
+              <input
+                type="number" min="50"
+                className="w-full border rounded p-2 mt-1"
+                value={radius}
+                onChange={(e) => setRadius(e.target.value)}
+              />
+              <span className="text-xs text-gray-500">
+                Demandé par l'employé : {mission.gps_radius_meters || 'non spécifié'}
+              </span>
+            </label>
+            <div className="text-xs text-indigo-700 bg-indigo-50/70 rounded p-2 leading-snug">
+              🚗 À l'approbation, le trajet pro (Art. 13 al. 3 OLT 1) sera
+              calculé automatiquement : trajet domicile → mission moins le
+              trajet standard du collaborateur. Le résultat apparaîtra sur la
+              fiche mission, et sera comptabilisé dans son temps de travail.
+            </div>
+          </>
         )}
         <label className="block text-sm">
           Commentaire (optionnel)
@@ -736,7 +746,10 @@ function ReportingTab() {
       ) : report.rows.length === 0 ? (
         <p className="text-sm text-gray-500">Aucun collaborateur actif.</p>
       ) : (
-        <table className="w-full text-sm bg-white border">
+        // Wrapper de scroll horizontal pour mobile (tableau 9 colonnes ne
+        // tient pas en 402 px). `-mx-3 sm:mx-0` étend bord-à-bord du viewport.
+        <div className="overflow-x-auto -mx-3 sm:mx-0">
+        <table className="min-w-[640px] sm:min-w-0 w-full text-sm bg-white border">
           <thead className="bg-gray-50 text-left">
             <tr>
               <th className="p-2 font-mono text-xs">ID</th>
@@ -779,6 +792,7 @@ function ReportingTab() {
             )})}
           </tbody>
         </table>
+        </div>
       )}
 
       {drilldown && (
@@ -795,9 +809,25 @@ function ReportingTab() {
 
 function UserDailyDrilldown({ userId, username, month, onClose }) {
   const [data, setData] = useState(null)
-  useEffect(() => {
+  const refresh = useCallback(() => {
     managerApi.reportForUser(userId, month).then(setData)
   }, [userId, month])
+  useEffect(() => { refresh() }, [refresh])
+
+  const onDeleteSession = async (s) => {
+    const ok = window.confirm(
+      `Supprimer le pointage ${fmtTime(s.clock_in_rounded)}` +
+      (s.clock_out_rounded ? `–${fmtTime(s.clock_out_rounded)}` : ' (en cours)') +
+      ' ?\n\nL\'opération est tracée dans le journal d\'audit.',
+    )
+    if (!ok) return
+    try {
+      await clockApi.deleteSession(s.id)
+      refresh()
+    } catch (e) {
+      alert(`Erreur : ${e?.response?.data?.error || e?.message || 'inconnue'}`)
+    }
+  }
 
   return (
     <div className="fixed inset-0 bg-black/40 flex items-end md:items-center justify-center p-4 z-50">
@@ -850,9 +880,23 @@ function UserDailyDrilldown({ userId, username, month, onClose }) {
                       </td>
                       <td className="p-2">
                         {d.sessions.length === 0 && '—'}
-                        {d.sessions.map((s, i) => (
-                          <span key={s.id} className="inline-block mr-2 text-gray-600">
-                            {fmtTime(s.clock_in_rounded)}–{fmtTime(s.clock_out_rounded) || '?'}
+                        {d.sessions.map((s) => (
+                          <span
+                            key={s.id}
+                            className="inline-flex items-center gap-1 mr-2 text-gray-600 bg-white border rounded px-1.5"
+                          >
+                            <span>
+                              {fmtTime(s.clock_in_rounded)}–{fmtTime(s.clock_out_rounded) || '?'}
+                            </span>
+                            <button
+                              type="button"
+                              onClick={() => onDeleteSession(s)}
+                              className="text-rose-600 hover:text-rose-800 leading-none px-0.5"
+                              title="Supprimer ce pointage (audit log conservé)"
+                              aria-label="Supprimer"
+                            >
+                              ✕
+                            </button>
                           </span>
                         ))}
                       </td>
@@ -860,6 +904,11 @@ function UserDailyDrilldown({ userId, username, month, onClose }) {
                         {d.worked_minutes > 0
                           ? `${Math.floor(d.worked_minutes / 60)}h${String(d.worked_minutes % 60).padStart(2, '0')}`
                           : '—'}
+                        {d.travel_compensable_minutes > 0 && (
+                          <div className="text-[10px] text-indigo-700 italic">
+                            dont {d.travel_compensable_minutes} min trajet
+                          </div>
+                        )}
                       </td>
                       <td className="p-2 text-gray-600">
                         {d.holiday && <span className="text-blue-700">🎉 {d.holiday}</span>}

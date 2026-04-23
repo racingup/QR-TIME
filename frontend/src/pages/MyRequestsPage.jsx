@@ -261,6 +261,17 @@ function MissionEditModal({ mission, onClose, onSaved }) {
             lat={form.location_lat ? Number(form.location_lat) : undefined}
             lon={form.location_lon ? Number(form.location_lon) : undefined}
             radius={Number(form.gps_radius_meters)}
+            // Centre par défaut : site de rattachement de l'employé
+            // (exposé par MissionSerializer via user.home_site).
+            defaultCenter={
+              mission.user_home_site_latitude != null
+                && mission.user_home_site_longitude != null
+                ? [
+                    Number(mission.user_home_site_latitude),
+                    Number(mission.user_home_site_longitude),
+                  ]
+                : undefined
+            }
             onPick={(lat, lon) =>
               setForm({ ...form, location_lat: lat.toFixed(6), location_lon: lon.toFixed(6) })
             }

@@ -179,13 +179,42 @@ export default function DayDetailPage() {
                     {s.clock_out_rounded ? fmtDuration(s.duration_minutes) : '—'}
                   </span>
                   {canEdit && (
-                    <button
-                      type="button"
-                      onClick={() => setEditing(s)}
-                      className="press px-3 py-1 rounded-full glass-soft text-xs"
-                    >
-                      Éditer
-                    </button>
+                    <>
+                      <button
+                        type="button"
+                        onClick={() => setEditing(s)}
+                        className="press px-3 py-1 rounded-full glass-soft text-xs"
+                      >
+                        Éditer
+                      </button>
+                      <button
+                        type="button"
+                        onClick={async () => {
+                          // Suppression définitive — anti-clic accidentel + audit log
+                          // côté serveur (la trace de qui/quand reste 10 ans).
+                          const ok = window.confirm(
+                            `Supprimer ce pointage de ${fmtTime(s.clock_in)}` +
+                            (s.clock_out ? ` → ${fmtTime(s.clock_out)} ?` : ' (en cours) ?') +
+                            '\n\nL\'opération est tracée dans le journal d\'audit.',
+                          )
+                          if (!ok) return
+                          try {
+                            await clockApi.deleteSession(s.id)
+                            refresh()
+                          } catch (e) {
+                            alert(
+                              `Erreur : ${
+                                e?.response?.data?.error || e?.message || 'inconnue'
+                              }`,
+                            )
+                          }
+                        }}
+                        className="press px-3 py-1 rounded-full text-xs bg-rose-600 text-white hover:bg-rose-700"
+                        title="Supprimer ce pointage (audit log conservé)"
+                      >
+                        🗑
+                      </button>
+                    </>
                   )}
                 </div>
                 <div className="text-xs text-slate-500 mt-1 flex flex-wrap items-center gap-3">
