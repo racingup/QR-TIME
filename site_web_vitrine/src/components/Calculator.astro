@@ -1,0 +1,294 @@
+---
+const sectors = [
+  { v: '1',   label: 'Bureau sédentaire',            factor: 'x1.0' },
+  { v: '1.3', label: 'BTP / Chantiers',               factor: 'x1.3' },
+  { v: '1.2', label: 'Retail multi-sites',            factor: 'x1.2' },
+  { v: '1.1', label: 'Soins à domicile / tournées',   factor: 'x1.1' },
+  { v: '0.8', label: 'Télétravail',                   factor: 'x0.8' },
+];
+---
+<section id="calculateur" class="section">
+  <div class="grid lg:grid-cols-12 gap-10 lg:gap-14 items-start">
+
+    <!-- Intro (sticky on desktop) -->
+    <div class="lg:col-span-5 lg:sticky lg:top-28">
+      <div class="eyebrow mb-4">Calculateur</div>
+      <h2 class="font-display text-display-lg font-semibold text-ink-900 mb-5">
+        Combien vous coûte <span class="text-ink-400">le pointage imprécis ?</span>
+      </h2>
+      <p class="text-lg text-ink-600 leading-relaxed mb-6">
+        Pointages approximatifs, badges partagés, pauses non déclarées.
+        Chiffrez en 10 secondes la fraude involontaire qui se cache dans votre masse salariale.
+      </p>
+
+      <div class="flex flex-wrap gap-2 mb-2">
+        <span class="inline-flex items-center gap-1.5 text-xs uppercase tracking-[0.14em] font-medium text-ink-500 px-2.5 py-1 rounded-full bg-white/70 border border-ink-100">
+          <span class="w-1.5 h-1.5 rounded-full bg-accent"></span>
+          Méthodologie
+          <button type="button" class="info-btn" data-tip="methodology">i</button>
+        </span>
+        <span class="inline-flex items-center gap-1.5 text-xs uppercase tracking-[0.14em] font-medium text-ink-500 px-2.5 py-1 rounded-full bg-white/70 border border-ink-100">
+          <span class="w-1.5 h-1.5 rounded-full bg-swiss"></span>
+          Conformité LTr
+          <button type="button" class="info-btn" data-tip="ltr">i</button>
+        </span>
+        <span class="inline-flex items-center gap-1.5 text-xs uppercase tracking-[0.14em] font-medium text-ink-500 px-2.5 py-1 rounded-full bg-white/70 border border-ink-100">
+          <span class="w-1.5 h-1.5 rounded-full bg-brand"></span>
+          Sources
+          <button type="button" class="info-btn" data-tip="sources">i</button>
+        </span>
+      </div>
+
+      <p class="text-xs text-ink-400 mt-4">Estimation indicative — consultez nos experts pour une analyse personnalisée.</p>
+    </div>
+
+    <!-- Calculator card -->
+    <div class="lg:col-span-7">
+      <div class="glass-strong rounded-3xl p-6 sm:p-8">
+
+        <!-- Inputs -->
+        <div class="space-y-6">
+
+          <!-- Collaborators slider -->
+          <div>
+            <div class="flex items-baseline justify-between mb-2">
+              <label for="calc-collab" class="text-sm font-medium text-ink-700">Nombre de collaborateurs</label>
+              <span id="calc-collab-display" class="font-display text-2xl font-semibold text-ink-900">50</span>
+            </div>
+            <input id="calc-collab" type="range" min="5" max="500" value="50" step="1"
+                   class="w-full h-2 bg-ink-100 rounded-full appearance-none cursor-pointer accent-brand" />
+            <div class="flex justify-between text-xs text-ink-400 mt-2">
+              <span>5</span><span>50</span><span>200</span><span>500</span>
+            </div>
+          </div>
+
+          <!-- Salary input -->
+          <div>
+            <div class="flex items-baseline justify-between mb-2">
+              <label for="calc-salary" class="text-sm font-medium text-ink-700 inline-flex items-center gap-1.5">
+                Salaire brut mensuel moyen
+                <button type="button" class="info-btn" data-tip="salary">i</button>
+              </label>
+              <span class="text-xs text-ink-400">CHF / mois</span>
+            </div>
+            <input id="calc-salary" type="number" value="7500" min="3000" max="20000" step="500"
+                   class="w-full rounded-xl border border-ink-200/80 bg-white/70 px-4 py-3 text-ink-900 placeholder-ink-400 focus:outline-none focus:border-brand focus:bg-white transition" />
+          </div>
+
+          <!-- Fraud rate slider -->
+          <div>
+            <div class="flex items-baseline justify-between mb-2">
+              <label for="calc-fraud" class="text-sm font-medium text-ink-700 inline-flex items-center gap-1.5">
+                Taux de fraude involontaire estimé
+                <button type="button" class="info-btn" data-tip="fraud">i</button>
+              </label>
+              <span id="calc-fraud-display" class="font-display text-2xl font-semibold text-ink-900">3.5%</span>
+            </div>
+            <input id="calc-fraud" type="range" min="2" max="5" value="3.5" step="0.1"
+                   class="w-full h-2 bg-ink-100 rounded-full appearance-none cursor-pointer accent-brand" />
+            <div class="flex justify-between text-xs text-ink-400 mt-2">
+              <span>2% · bas</span><span>3.5% · médian</span><span>5% · haut</span>
+            </div>
+          </div>
+
+          <!-- Sector select -->
+          <div>
+            <div class="flex items-baseline justify-between mb-2">
+              <label for="calc-sector" class="text-sm font-medium text-ink-700 inline-flex items-center gap-1.5">
+                Secteur / Mode de travail
+                <button type="button" class="info-btn" data-tip="sector">i</button>
+              </label>
+            </div>
+            <select id="calc-sector" class="w-full rounded-xl border border-ink-200/80 bg-white/70 px-4 py-3 text-ink-900 focus:outline-none focus:border-brand focus:bg-white transition">
+              {sectors.map((s) => (
+                <option value={s.v}>{s.label} — {s.factor}</option>
+              ))}
+            </select>
+          </div>
+        </div>
+
+        <!-- Results -->
+        <div class="mt-8 pt-8 border-t border-ink-100">
+          <div class="grid sm:grid-cols-2 gap-3 sm:gap-4">
+            <div class="rounded-2xl bg-white/60 border border-ink-100 p-5">
+              <p class="text-xs uppercase tracking-wider text-ink-500 mb-2">Masse salariale / an</p>
+              <p class="font-display text-2xl font-semibold text-ink-900"><span id="calc-result-salary">4 500 000</span> <span class="text-ink-400 text-base font-medium">CHF</span></p>
+            </div>
+            <div class="rounded-2xl bg-swiss/[0.06] border border-swiss/25 p-5">
+              <p class="text-xs uppercase tracking-wider text-swiss/90 mb-2 font-semibold">Fraude involontaire</p>
+              <p class="font-display text-2xl font-semibold text-swiss"><span id="calc-result-fraud">157 500</span> <span class="text-swiss/70 text-base font-medium">CHF/an</span></p>
+            </div>
+            <div class="rounded-2xl bg-white/60 border border-ink-100 p-5">
+              <p class="text-xs uppercase tracking-wider text-ink-500 mb-2">Par mois</p>
+              <p class="font-display text-2xl font-semibold text-ink-900"><span id="calc-result-monthly">13 125</span> <span class="text-ink-400 text-base font-medium">CHF</span></p>
+            </div>
+            <div class="rounded-2xl bg-white/60 border border-ink-100 p-5">
+              <p class="text-xs uppercase tracking-wider text-ink-500 mb-2">Par collaborateur / an</p>
+              <p class="font-display text-2xl font-semibold text-ink-900"><span id="calc-result-per">3 150</span> <span class="text-ink-400 text-base font-medium">CHF</span></p>
+            </div>
+          </div>
+
+          <!-- Breakdown -->
+          <details class="mt-4 rounded-2xl bg-white/40 border border-ink-100 group">
+            <summary class="cursor-pointer list-none px-5 py-4 flex items-center justify-between text-sm font-medium text-ink-700">
+              <span>Détail du calcul</span>
+              <svg class="w-4 h-4 text-ink-400 transition-transform group-open:rotate-180" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 9l6 6 6-6"/></svg>
+            </summary>
+            <div class="px-5 pb-5 text-sm">
+              <dl class="divide-y divide-ink-100/80">
+                <div class="flex justify-between py-2.5"><dt class="text-ink-500">Collaborateurs</dt><dd class="font-medium text-ink-900" id="brk-collab">50</dd></div>
+                <div class="flex justify-between py-2.5"><dt class="text-ink-500">Salaire brut mensuel</dt><dd class="font-medium text-ink-900" id="brk-salary">7 500 CHF</dd></div>
+                <div class="flex justify-between py-2.5"><dt class="text-ink-500">Taux de fraude</dt><dd class="font-medium text-ink-900" id="brk-fraud">3.5%</dd></div>
+                <div class="flex justify-between py-2.5"><dt class="text-ink-500">Ajustement secteur</dt><dd class="font-medium text-ink-900" id="brk-factor">x1.0</dd></div>
+                <div class="flex justify-between py-3 border-t-2 border-ink-200"><dt class="font-semibold text-ink-900">Fraude / an</dt><dd class="font-semibold text-swiss" id="brk-total">157 500 CHF</dd></div>
+              </dl>
+            </div>
+          </details>
+        </div>
+
+        <!-- CTA bar -->
+        <div class="mt-6 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 rounded-2xl bg-ink-900 text-white p-5">
+          <p class="text-sm leading-relaxed max-w-sm">
+            QRtime élimine <span class="text-accent font-semibold">jusqu'à 90%</span> de cette fraude involontaire en 48h — QR papier + validation de position conforme à la LPD.
+          </p>
+          <a href="#contact" class="btn inline-flex bg-white text-ink-900 hover:bg-ink-50 px-5 py-2.5 rounded-full font-medium text-sm whitespace-nowrap">
+            Réserver une démo →
+          </a>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- Tooltip popover (single, repositioned) -->
+<div id="calc-tip" class="fixed z-[60] hidden max-w-sm p-4 rounded-2xl glass-strong text-sm text-ink-700 leading-relaxed shadow-glass-lg pointer-events-auto"
+     role="dialog" aria-live="polite">
+  <button id="calc-tip-close" type="button" class="absolute top-2 right-2 w-7 h-7 rounded-full hover:bg-ink-100 flex items-center justify-center text-ink-400" aria-label="Fermer">
+    <svg viewBox="0 0 24 24" class="w-3.5 h-3.5" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M6 6l12 12M6 18L18 6"/></svg>
+  </button>
+  <div id="calc-tip-content"></div>
+</div>
+
+<style>
+  .info-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 16px;
+    height: 16px;
+    border-radius: 9999px;
+    font-size: 10px;
+    font-weight: 700;
+    font-style: italic;
+    font-family: Georgia, serif;
+    background: rgba(31, 95, 130, 0.10);
+    color: #1F5F82;
+    border: 1px solid rgba(31, 95, 130, 0.18);
+    cursor: pointer;
+    transition: all .15s ease;
+    line-height: 1;
+  }
+  .info-btn:hover {
+    background: #1F5F82;
+    color: #fff;
+  }
+</style>
+
+<script>
+  const collab = document.getElementById('calc-collab') as HTMLInputElement | null;
+  const salary = document.getElementById('calc-salary') as HTMLInputElement | null;
+  const fraud = document.getElementById('calc-fraud') as HTMLInputElement | null;
+  const sector = document.getElementById('calc-sector') as HTMLSelectElement | null;
+
+  const fmt = (n: number) => new Intl.NumberFormat('fr-CH').format(Math.round(n));
+
+  function update() {
+    if (!collab || !salary || !fraud || !sector) return;
+    const c = parseInt(collab.value, 10);
+    const s = parseInt(salary.value, 10);
+    const f = parseFloat(fraud.value);
+    const k = parseFloat(sector.value);
+
+    const annualSal = c * s * 12;
+    const annualFraud = annualSal * (f / 100) * k;
+    const monthly = annualFraud / 12;
+    const perPerson = annualFraud / c;
+
+    const set = (id: string, txt: string) => {
+      const el = document.getElementById(id);
+      if (el) el.textContent = txt;
+    };
+
+    set('calc-collab-display', String(c));
+    set('calc-fraud-display', f.toFixed(1) + '%');
+    set('calc-result-salary', fmt(annualSal));
+    set('calc-result-fraud', fmt(annualFraud));
+    set('calc-result-monthly', fmt(monthly));
+    set('calc-result-per', fmt(perPerson));
+    set('brk-collab', String(c));
+    set('brk-salary', fmt(s) + ' CHF');
+    set('brk-fraud', f.toFixed(1) + '%');
+    set('brk-factor', 'x' + k.toFixed(1));
+    set('brk-total', fmt(annualFraud) + ' CHF');
+  }
+
+  collab?.addEventListener('input', update);
+  salary?.addEventListener('input', update);
+  fraud?.addEventListener('input', update);
+  sector?.addEventListener('change', update);
+  update();
+
+  // ——— Tooltips ———
+  const TIPS: Record<string, string> = {
+    methodology: "<strong>Méthodologie sourcée.</strong> Benchmarks de l'industrie RH suisse, Promotion Santé Suisse et données SECO. Les chiffres sont estimatifs et servent de point de départ ; une analyse personnalisée affinera le résultat.",
+    ltr: "<strong>Conformité LTr.</strong> L'article 46 de la Loi sur le travail impose l'enregistrement du temps travaillé. Non-respect : amendes jusqu'à 540 000 CHF (180 jours-amendes à 3 000 CHF/jour).",
+    sources: "<strong>Sources.</strong> Taux 2–5% : PwC Economic Crime Survey + études de secteur. Art. 46 LTr : SECO officiel. Absentéisme : Promotion Santé Suisse (7–7,6 Mrd CHF/an). Salaire médian : OFS 2024 — 7 024 CHF brut.",
+    salary: "Salaire brut mensuel moyen de vos collaborateurs. La médiane suisse 2024 est de 7 024 CHF (OFS).",
+    fraud: "<strong>Fraude involontaire.</strong> Pointages arrondis à la hausse, pauses oubliées, entrées/sorties approximatives. Benchmark 2–5% de la masse salariale — médian 3,5%.",
+    sector: "Ajustement selon le contexte : plus le travail est itinérant et multi-sites, plus le risque d'imprécision grandit. Le télétravail avec tracking strict tend à le réduire.",
+  };
+
+  const tip = document.getElementById('calc-tip');
+  const tipContent = document.getElementById('calc-tip-content');
+  const tipClose = document.getElementById('calc-tip-close');
+
+  function showTip(key: string, anchor: HTMLElement) {
+    if (!tip || !tipContent) return;
+    tipContent.innerHTML = TIPS[key] ?? '';
+    tip.classList.remove('hidden');
+    const rect = anchor.getBoundingClientRect();
+    const tipRect = tip.getBoundingClientRect();
+    let top = rect.bottom + 8;
+    let left = rect.left + rect.width / 2 - tipRect.width / 2;
+    // clamp horizontally
+    const pad = 12;
+    if (left < pad) left = pad;
+    if (left + tipRect.width > window.innerWidth - pad) left = window.innerWidth - tipRect.width - pad;
+    // flip up if too close to bottom
+    if (top + tipRect.height > window.innerHeight - pad) top = rect.top - tipRect.height - 8;
+    tip.style.top = top + 'px';
+    tip.style.left = left + 'px';
+  }
+  function hideTip() { tip?.classList.add('hidden'); }
+
+  document.querySelectorAll<HTMLButtonElement>('.info-btn').forEach((btn) => {
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const key = btn.dataset.tip;
+      if (!key) return;
+      const isOpen = !tip?.classList.contains('hidden');
+      if (isOpen) { hideTip(); setTimeout(() => showTip(key, btn), 0); }
+      else showTip(key, btn);
+    });
+  });
+  tipClose?.addEventListener('click', hideTip);
+  document.addEventListener('click', (e) => {
+    if (!tip) return;
+    if (tip.contains(e.target as Node)) return;
+    if ((e.target as HTMLElement).classList?.contains('info-btn')) return;
+    hideTip();
+  });
+  document.addEventListener('keydown', (e) => { if (e.key === 'Escape') hideTip(); });
+  window.addEventListener('scroll', hideTip, { passive: true });
+  window.addEventListener('resize', hideTip);
+</script>
