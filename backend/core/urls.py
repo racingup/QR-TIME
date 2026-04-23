@@ -1,10 +1,32 @@
 from django.contrib import admin
+from django.db import connection
+from django.http import JsonResponse
 from django.urls import include, path
+from django.utils import timezone
 
 from apps.users.urls import me_urlpatterns
 
+
+def health(request):
+    """Health endpoint pour load balancer / monitoring (uptimerobot, etc.).
+
+    Vérifie que la DB répond. Pas d'authentification, pas de données sensibles.
+    Retourne 503 si la base est injoignable — utile pour faire échouer un
+    healthcheck Caddy/Docker plutôt qu'un timeout silencieux.
+    """
+    try:
+        with connection.cursor() as cur:
+            cur.execute("SELECT 1")
+        return JsonResponse({"status": "ok", "time": timezone.now().isoformat()})
+    except Exception as exc:  # noqa: BLE001
+        return JsonResponse(
+            {"status": "error", "detail": str(exc)[:200]}, status=503,
+        )
+
+
 urlpatterns = [
     path("admin/", admin.site.urls),
+    path("api/health/", health, name="health"),
     path("api/auth/", include("apps.users.urls")),
     path("api/me/", include(me_urlpatterns)),
     path("api/clock/", include("apps.clocking.urls")),

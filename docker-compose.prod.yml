@@ -1,0 +1,173 @@
+# Production stack — to be used on the VPS, NOT for local dev.
+#
+# Usage:
+#   docker compose -f docker-compose.prod.yml --env-file .env.production up -d --build
+#
+# All env vars come from .env.production (NOT committed).
+# Caddy terminates TLS automatically via Let's Encrypt for ${DOMAIN}.
+services:
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    # Pas de port exposé — accès uniquement depuis le réseau Docker.
+
+  db-backup:
+    # Nightly pg_dump → /backups (persisted to the pgbackups volume).
+    # See ops/README.md for the monthly restore drill procedure.
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_HOST: db
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER}
+      PGPASSWORD: ${POSTGRES_PASSWORD}
+      RETENTION_DAYS: ${BACKUP_RETENTION_DAYS:-30}
+    volumes:
+      - ./ops:/ops:ro
+      - pgbackups:/backups
+    depends_on:
+      db:
+        condition: service_healthy
+    # Alpine's crond reads /etc/crontabs/root. Fires at 02:30 UTC every day.
+    # `-d 8` prints cron activity to stdout (Docker logs).
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        echo '30 2 * * * /ops/backup.sh >> /proc/1/fd/1 2>&1' > /etc/crontabs/root
+        # Run one immediately so a fresh deploy has a baseline dump.
+        /ops/backup.sh || true
+        crond -f -d 8
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    volumes:
+      - redisdata:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  backend:
+    build: ./backend
+    restart: unless-stopped
+    entrypoint: /app/entrypoint.prod.sh
+    command: ["gunicorn", "core.wsgi:application", "--bind", "0.0.0.0:8000",
+              "--workers", "3", "--timeout", "60", "--access-logfile", "-"]
+    environment:
+      DJANGO_SECRET_KEY: ${DJANGO_SECRET_KEY}
+      DJANGO_DEBUG: "0"
+      DJANGO_ALLOWED_HOSTS: ${DOMAIN}
+      DATABASE_URL: postgres://${POSTGRES_USER}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB}
+      REDIS_URL: redis://redis:6379/0
+      CORS_ALLOWED_ORIGINS: https://${DOMAIN}
+      CSRF_TRUSTED_ORIGINS: https://${DOMAIN}
+      JWT_ACCESS_MINUTES: "60"
+      JWT_REFRESH_DAYS: "7"
+      EMAIL_HOST: ${EMAIL_HOST:-}
+      EMAIL_PORT: ${EMAIL_PORT:-587}
+      EMAIL_HOST_USER: ${EMAIL_HOST_USER:-}
+      EMAIL_HOST_PASSWORD: ${EMAIL_HOST_PASSWORD:-}
+      EMAIL_USE_TLS: ${EMAIL_USE_TLS:-1}
+      DEFAULT_FROM_EMAIL: ${DEFAULT_FROM_EMAIL:-qrtime.ch <no-reply@qrtime.ch>}
+      SITE_PUBLIC_URL: https://${DOMAIN}
+      RETENTION_TIME_DATA_YEARS: ${RETENTION_TIME_DATA_YEARS:-5}
+      RETENTION_AUDIT_LOG_YEARS: ${RETENTION_AUDIT_LOG_YEARS:-10}
+      INITIAL_SUPERUSER_USERNAME: ${INITIAL_SUPERUSER_USERNAME:-}
+      INITIAL_SUPERUSER_PASSWORD: ${INITIAL_SUPERUSER_PASSWORD:-}
+      INITIAL_SUPERUSER_EMAIL: ${INITIAL_SUPERUSER_EMAIL:-}
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  celery:
+    build: ./backend
+    restart: unless-stopped
+    entrypoint: ""        # skip migrations/collectstatic — only worker
+    command: ["celery", "-A", "core", "worker", "-l", "info"]
+    environment:
+      DJANGO_SECRET_KEY: ${DJANGO_SECRET_KEY}
+      DJANGO_DEBUG: "0"
+      DJANGO_ALLOWED_HOSTS: ${DOMAIN}
+      DATABASE_URL: postgres://${POSTGRES_USER}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB}
+      REDIS_URL: redis://redis:6379/0
+      EMAIL_HOST: ${EMAIL_HOST:-}
+      EMAIL_PORT: ${EMAIL_PORT:-587}
+      EMAIL_HOST_USER: ${EMAIL_HOST_USER:-}
+      EMAIL_HOST_PASSWORD: ${EMAIL_HOST_PASSWORD:-}
+      EMAIL_USE_TLS: ${EMAIL_USE_TLS:-1}
+      DEFAULT_FROM_EMAIL: ${DEFAULT_FROM_EMAIL:-qrtime.ch <no-reply@qrtime.ch>}
+      SITE_PUBLIC_URL: https://${DOMAIN}
+      RETENTION_TIME_DATA_YEARS: ${RETENTION_TIME_DATA_YEARS:-5}
+      RETENTION_AUDIT_LOG_YEARS: ${RETENTION_AUDIT_LOG_YEARS:-10}
+    depends_on:
+      backend:
+        condition: service_started
+
+  celery-beat:
+    build: ./backend
+    restart: unless-stopped
+    entrypoint: ""
+    command: ["celery", "-A", "core", "beat", "-l", "info"]
+    environment:
+      DJANGO_SECRET_KEY: ${DJANGO_SECRET_KEY}
+      DJANGO_DEBUG: "0"
+      DJANGO_ALLOWED_HOSTS: ${DOMAIN}
+      DATABASE_URL: postgres://${POSTGRES_USER}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB}
+      REDIS_URL: redis://redis:6379/0
+      EMAIL_HOST: ${EMAIL_HOST:-}
+      EMAIL_PORT: ${EMAIL_PORT:-587}
+      EMAIL_HOST_USER: ${EMAIL_HOST_USER:-}
+      EMAIL_HOST_PASSWORD: ${EMAIL_HOST_PASSWORD:-}
+      EMAIL_USE_TLS: ${EMAIL_USE_TLS:-1}
+      DEFAULT_FROM_EMAIL: ${DEFAULT_FROM_EMAIL:-qrtime.ch <no-reply@qrtime.ch>}
+      SITE_PUBLIC_URL: https://${DOMAIN}
+      RETENTION_TIME_DATA_YEARS: ${RETENTION_TIME_DATA_YEARS:-5}
+      RETENTION_AUDIT_LOG_YEARS: ${RETENTION_AUDIT_LOG_YEARS:-10}
+    depends_on:
+      backend:
+        condition: service_started
+
+  frontend:
+    build: ./frontend
+    restart: unless-stopped
+    # nginx interne — pas de port exposé, Caddy proxie devant.
+
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"   # HTTP/3
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    environment:
+      DOMAIN: ${DOMAIN}
+      LETSENCRYPT_EMAIL: ${LETSENCRYPT_EMAIL}
+    depends_on:
+      - backend
+      - frontend
+
+volumes:
+  pgdata:
+  pgbackups:
+  redisdata:
+  caddy_data:
+  caddy_config:

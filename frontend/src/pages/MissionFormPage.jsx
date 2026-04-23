@@ -1,5 +1,7 @@
-import { useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
+import * as meApi from '../api/me'
 import * as missionsApi from '../api/missions'
+import MapPicker from '../components/MapPicker'
 
 export default function MissionFormPage() {
   const [form, setForm] = useState({
@@ -8,10 +10,23 @@ export default function MissionFormPage() {
     date_end: '',
     location_name: '',
     gps_radius_meters: 500,
+    location_lat: null,
+    location_lon: null,
+    user_comment: '',
   })
   const [submitting, setSubmitting] = useState(false)
   const [created, setCreated] = useState(null)
   const [error, setError] = useState(null)
+  const [homeSite, setHomeSite] = useState(null)
+
+  useEffect(() => {
+    meApi.summary().then((s) => setHomeSite(s.home_site)).catch(() => setHomeSite(null))
+  }, [])
+
+  const defaultMapCenter = useMemo(() => {
+    if (!homeSite) return undefined
+    return [Number(homeSite.latitude), Number(homeSite.longitude)]
+  }, [homeSite])
 
   const update = (k) => (e) => setForm({ ...form, [k]: e.target.value })
 
@@ -24,6 +39,8 @@ export default function MissionFormPage() {
       if (form.mission_type === 'REMOTE') {
         delete payload.gps_radius_meters
         delete payload.location_name
+        delete payload.location_lat
+        delete payload.location_lon
       }
       const data = await missionsApi.create(payload)
       setCreated(data)
@@ -109,7 +126,38 @@ export default function MissionFormPage() {
               value={form.gps_radius_meters}
               onChange={update('gps_radius_meters')}
             />
+            <span className="block text-xs text-gray-500 mt-1">
+              Le manager pourra ajuster ce rayon à l'approbation.
+            </span>
           </label>
+          <div>
+            <p className="text-sm mb-1">
+              Position sur la carte (cliquer pour choisir)
+              {homeSite && !form.location_lat && (
+                <span className="text-xs text-slate-500 ml-1">
+                  · centrée sur votre site de rattachement ({homeSite.name})
+                </span>
+              )}
+            </p>
+            <MapPicker
+              lat={form.location_lat ? Number(form.location_lat) : undefined}
+              lon={form.location_lon ? Number(form.location_lon) : undefined}
+              radius={Number(form.gps_radius_meters)}
+              defaultCenter={defaultMapCenter}
+              onPick={(lat, lon) =>
+                setForm({
+                  ...form,
+                  location_lat: lat.toFixed(6),
+                  location_lon: lon.toFixed(6),
+                })
+              }
+            />
+            {form.location_lat && (
+              <p className="text-xs text-gray-500 mt-1 font-mono">
+                {form.location_lat}, {form.location_lon}
+              </p>
+            )}
+          </div>
           <p className="text-xs text-gray-600 bg-gray-50 border rounded p-2">
             Votre pointage sera valide dans un rayon de{' '}
             <strong>{form.gps_radius_meters} m</strong>{' '}
@@ -117,6 +165,18 @@ export default function MissionFormPage() {
           </p>
         </>
       )}
+
+      <label className="block">
+        <span className="text-sm">
+          Commentaire à l'intention du manager (optionnel)
+        </span>
+        <textarea
+          className="w-full border rounded p-2 mt-1 h-20 text-sm"
+          value={form.user_comment}
+          onChange={update('user_comment')}
+          placeholder="Ex : déplacement client important, besoin d'accès au matériel…"
+        />
+      </label>
 
       {error && (
         <p className="text-red-700 text-sm" role="alert">

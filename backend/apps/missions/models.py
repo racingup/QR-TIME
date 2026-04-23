@@ -30,11 +30,20 @@ class Mission(models.Model):
         null=True, blank=True,
         help_text="Rayon GPS pour cette mission (None = pas de validation GPS).",
     )
+    mission_number = models.CharField(
+        max_length=40, blank=True,
+        help_text="Numéro de mission attribué par le manager / mission manager / admin.",
+    )
     qr_token = models.CharField(max_length=64, unique=True, null=True, blank=True)
     status = models.CharField(max_length=10, choices=Status.choices, default=Status.PENDING)
     approved_by = models.ForeignKey(
         settings.AUTH_USER_MODEL, on_delete=models.SET_NULL,
         null=True, blank=True, related_name="approved_missions",
+    )
+    user_comment = models.TextField(
+        blank=True,
+        help_text="Commentaire libre laissé par l'employé à la soumission "
+                  "(contexte, motif, instructions spéciales).",
     )
     manager_comment = models.TextField(blank=True)
     created_at = models.DateTimeField(auto_now_add=True)

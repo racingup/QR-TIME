@@ -1,0 +1,66 @@
+---
+const badges = [
+  {
+    flag: '🇨🇭',
+    title: 'Swiss Hosting',
+    body: 'Infrastructure AlpiVault, datacenters en Suisse. Aucun transfert de données hors du territoire.',
+  },
+  {
+    icon: '📜',
+    title: 'nLPD &amp; RGPD',
+    body: 'Conformité native à la nouvelle loi suisse sur la protection des données et au RGPD européen.',
+  },
+  {
+    icon: '🔐',
+    title: 'Chiffrement bout-en-bout',
+    body: 'TLS 1.3 en transit, AES-256 au repos. Sauvegardes chiffrées avec clés détenues par vous.',
+  },
+  {
+    icon: '✅',
+    title: 'LTr compliant',
+    body: "Registre du temps de travail conforme à l'article 46 de la Loi sur le travail. Archivage 10 ans automatique.",
+  },
+];
+---
+<section id="securite" class="section">
+  <div class="glass-dark rounded-[2rem] p-8 sm:p-14 relative overflow-hidden">
+    <div class="absolute inset-0 opacity-[0.08] pointer-events-none">
+      <svg viewBox="0 0 400 200" preserveAspectRatio="none" class="w-full h-full">
+        <defs>
+          <pattern id="grid" width="40" height="40" patternUnits="userSpaceOnUse">
+            <path d="M40 0 L0 0 0 40" fill="none" stroke="white" stroke-width="0.5"/>
+          </pattern>
+        </defs>
+        <rect width="100%" height="100%" fill="url(#grid)"/>
+      </svg>
+    </div>
+
+    <div class="relative z-10">
+      <div class="max-w-3xl mb-10">
+        <div class="inline-flex items-center gap-2 text-xs uppercase tracking-[0.18em] font-medium text-white/60 mb-4">
+          <span class="inline-block w-1.5 h-1.5 rounded-full bg-swiss"></span>
+          Sécurité &amp; conformité
+        </div>
+        <h2 class="font-display text-display-lg font-semibold text-white mb-4">
+          Vos données ne quittent jamais la Suisse.
+        </h2>
+        <p class="text-lg text-white/70 leading-relaxed">
+          QRtime est hébergé chez <a href="https://alpivault.ch" class="underline underline-offset-4 decoration-white/30 hover:decoration-white">AlpiVault</a>,
+          infrastructure 100% suisse, dans des datacenters certifiés à Lausanne et Zurich. Vos pointages sont soumis
+          au droit suisse — et seulement au droit suisse. La validation de position est proportionnée au but (prouver la présence)
+          et entièrement conforme à la LPD.
+        </p>
+      </div>
+
+      <div class="grid sm:grid-cols-2 lg:grid-cols-4 gap-4">
+        {badges.map((b) => (
+          <div class="rounded-2xl p-5 border border-white/10 bg-white/[0.04]">
+            <div class="text-2xl mb-4">{b.flag ?? b.icon}</div>
+            <h3 class="font-semibold text-white mb-2" set:html={b.title}></h3>
+            <p class="text-sm text-white/70 leading-relaxed" set:html={b.body}></p>
+          </div>
+        ))}
+      </div>
+    </div>
+  </div>
+</section>

@@ -1,0 +1,65 @@
+---
+const faqs = [
+  {
+    q: 'Pourquoi un QR papier plutôt qu\'une app mobile pure ?',
+    a: "Un QR physique impose la présence réelle. Une app mobile seule permet de pointer depuis son canapé avec un VPN. Le papier, c'est la preuve. On le renouvelle uniquement quand c'est nécessaire — pas de rotation artificielle.",
+  },
+  {
+    q: "Et si un collaborateur n'a pas de réseau sur le chantier ?",
+    a: "Le scan est capturé localement et envoyé dès reconnexion. L'horodatage est celui du scan, pas celui de la synchronisation. Aucune perte.",
+  },
+  {
+    q: 'Comment gérer les équipes sans smartphone personnel ?',
+    a: "QRtime fonctionne aussi avec des tablettes partagées, bornes tactiles, ou smartphones d'entreprise. Le login JWT permet plusieurs comptes sur un même appareil.",
+  },
+  {
+    q: "La solution s'intègre-t-elle à notre logiciel de paie ?",
+    a: 'Export CSV et Excel prêts pour les logiciels suisses courants (Crésus, Abacus, Sage). Une intégration API est possible avec l\'offre On-Premise.',
+  },
+  {
+    q: 'Combien de temps pour déployer ?',
+    a: 'Cloud : 5 minutes (inscription, création des sites, impression des QR). On-Premise : 48h incluant installation, formation et paramétrage.',
+  },
+  {
+    q: "Que deviennent les données si on quitte QRtime ?",
+    a: "Export complet en CSV à tout moment, gratuit. En Cloud, vous avez 90 jours pour récupérer vos données après résiliation. En On-Premise, elles sont déjà chez vous.",
+  },
+  {
+    q: "Qui voit les données de géolocalisation ?",
+    a: "Seuls les managers autorisés, et uniquement le statut du pointage (validé / hors zone / distance). Les coordonnées précises sont accessibles uniquement à un administrateur identifié et sont journalisées. Finalité strictement limitée à la preuve de présence — conforme à la LPD.",
+  },
+  {
+    q: 'Peut-on personnaliser les règles (arrondis, tolérances, plages) ?',
+    a: "Oui, par site et par équipe. Tolérance d'arrondi, rayon de validation, plages fixes, heure limite de régularisation — tout est configurable depuis l'admin.",
+  },
+  {
+    q: 'Le code est-il auditable ?',
+    a: "Oui. L'offre On-Premise inclut le code source documenté. Pour le Cloud, un audit de sécurité annuel est disponible sur demande.",
+  },
+  {
+    q: "Et si on veut passer du Cloud à l'On-Premise plus tard ?",
+    a: "Migration fluide, prise en charge par nos équipes. Le tarif On-Premise est abattu du montant Cloud déjà versé dans l'année.",
+  },
+];
+---
+<section id="faq" class="section">
+  <div class="max-w-3xl mb-12">
+    <div class="eyebrow mb-4">FAQ</div>
+    <h2 class="font-display text-display-lg font-semibold text-ink-900">
+      Les questions que <span class="text-ink-400">vous vous posez.</span>
+    </h2>
+  </div>
+  <div class="space-y-3 max-w-4xl">
+    {faqs.map((item, i) => (
+      <details class="glass rounded-2xl group" open={i === 0}>
+        <summary class="cursor-pointer list-none p-5 sm:p-6 flex items-center justify-between gap-4">
+          <span class="font-medium text-ink-900">{item.q}</span>
+          <span class="w-8 h-8 rounded-full bg-ink-100/70 flex items-center justify-center flex-shrink-0 transition-transform group-open:rotate-45">
+            <svg class="w-4 h-4 text-ink-700" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 5v14M5 12h14"/></svg>
+          </span>
+        </summary>
+        <div class="px-5 pb-5 sm:px-6 sm:pb-6 text-ink-600 leading-relaxed">{item.a}</div>
+      </details>
+    ))}
+  </div>
+</section>

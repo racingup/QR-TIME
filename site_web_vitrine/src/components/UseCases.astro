@@ -1,0 +1,102 @@
+---
+const cases = [
+  {
+    id: 'bureau',
+    tab: 'Bureau & sédentaire',
+    title: 'Accueil, flextime, télétravail occasionnel.',
+    body: "Un QR à l'accueil, les collaborateurs scannent en arrivant et en partant. Géorepère du bâtiment, rayon 30 mètres — traitement proportionné et conforme à la LPD. Pause déjeuner, télétravail occasionnel, flextime — tout est couvert.",
+  },
+  {
+    id: 'chantier',
+    tab: 'Chantier & BTP',
+    title: 'Équipes terrain, même sans réseau.',
+    body: 'Un QR par chantier, imprimé et plastifié. Les équipes pointent sur place, même sans 4G (validation différée dès reconnexion). Heures réelles, facturation client au plus juste.',
+  },
+  {
+    id: 'missions',
+    tab: 'Missions & déplacements',
+    title: 'Le bon pointage, au bon endroit, au bon moment.',
+    body: 'Le manager crée une mission, le collaborateur reçoit un QR nominatif valide pour la durée. Client à Genève, audit à Zurich, visite à Bâle : le temps est compté, justifié, traçable.',
+  },
+  {
+    id: 'tournee',
+    tab: 'Soins à domicile & tournées',
+    title: "Chaque visite, une preuve de présence.",
+    body: 'Un QR chez chaque patient, une validation de position à chaque visite — strictement proportionnée et conforme à la LPD. Les tournées sont prouvées, les temps de déplacement distincts du temps d\'intervention.',
+  },
+  {
+    id: 'retail',
+    tab: 'Retail multi-sites',
+    title: 'Plusieurs boutiques, une seule vue.',
+    body: 'Chaque point de vente a son QR. Les managers régionaux consultent plusieurs boutiques en temps réel depuis un seul tableau de bord.',
+  },
+];
+---
+<section id="usages" class="section">
+  <div class="max-w-3xl mb-12">
+    <div class="eyebrow mb-4">Cas d'usage</div>
+    <h2 class="font-display text-display-lg font-semibold text-ink-900">
+      Conçu pour le travail réel.
+    </h2>
+  </div>
+
+  <div class="glass-strong rounded-3xl p-3 sm:p-4">
+    <div class="flex flex-wrap gap-1.5 sm:gap-2 p-1 bg-ink-50/80 rounded-2xl" role="tablist" id="use-tabs">
+      {cases.map((c, i) => (
+        <button
+          type="button"
+          data-target={c.id}
+          class:list={[
+            'flex-1 min-w-[140px] px-4 py-2.5 rounded-xl text-sm font-medium transition',
+            i === 0 ? 'bg-white text-ink-900 shadow-soft' : 'text-ink-500 hover:text-ink-800',
+          ]}
+        >{c.tab}</button>
+      ))}
+    </div>
+
+    <div class="p-6 sm:p-10">
+      {cases.map((c, i) => (
+        <div
+          id={`panel-${c.id}`}
+          class:list={['use-panel grid md:grid-cols-5 gap-8 items-center', i === 0 ? '' : 'hidden']}
+        >
+          <div class="md:col-span-3">
+            <h3 class="font-display text-display-md font-semibold text-ink-900 mb-4">{c.title}</h3>
+            <p class="text-ink-600 text-lg leading-relaxed">{c.body}</p>
+          </div>
+          <div class="md:col-span-2">
+            <div class="glass rounded-3xl aspect-[4/3] p-6 flex items-center justify-center relative overflow-hidden">
+              <div class="absolute inset-0 bg-[radial-gradient(circle_at_30%_20%,rgba(13,43,78,0.08),transparent_60%)]"></div>
+              <svg viewBox="0 0 200 150" class="w-full h-full relative z-10 text-ink-900/80" fill="none" stroke="currentColor" stroke-width="1.2">
+                <rect x="20" y="30" width="160" height="100" rx="8" fill="rgba(255,255,255,0.5)"/>
+                <circle cx="100" cy="80" r="28" fill="none"/>
+                <circle cx="100" cy="80" r="4" fill="currentColor"/>
+                <path d="M100 52v8M100 100v8M72 80h8M120 80h8" />
+                <text x="100" y="120" text-anchor="middle" class="text-[8px]" fill="currentColor" stroke="none">{c.id}</text>
+              </svg>
+            </div>
+          </div>
+        </div>
+      ))}
+    </div>
+  </div>
+</section>
+
+<script>
+  const tabs = document.querySelectorAll<HTMLButtonElement>('#use-tabs button');
+  const panels = document.querySelectorAll<HTMLDivElement>('.use-panel');
+  tabs.forEach((btn) => {
+    btn.addEventListener('click', () => {
+      const target = btn.dataset.target;
+      tabs.forEach((b) => {
+        b.classList.toggle('bg-white', b === btn);
+        b.classList.toggle('text-ink-900', b === btn);
+        b.classList.toggle('shadow-soft', b === btn);
+        b.classList.toggle('text-ink-500', b !== btn);
+      });
+      panels.forEach((p) => {
+        p.classList.toggle('hidden', p.id !== `panel-${target}`);
+      });
+    });
+  });
+</script>

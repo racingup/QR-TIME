@@ -1,5 +1,6 @@
-import { render, screen, waitFor } from '@testing-library/react'
+import { render as baseRender, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
+import { MemoryRouter } from 'react-router-dom'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 // Capture the QRScanner's onDecode prop so tests can fire it manually.
@@ -17,10 +18,26 @@ vi.mock('../api/clock', () => ({
   scan: (...args) => mockScan(...args),
   today: vi.fn(),
   history: vi.fn(),
+  day: vi.fn(),
   regularize: vi.fn(),
+  editSession: vi.fn(),
+}))
+
+// GPS consent already granted in tests — gate is skipped.
+vi.mock('../api/me', () => ({
+  consent: {
+    get: () => Promise.resolve({ gps: { granted: true, at: '2026-04-01T00:00:00Z' } }),
+    set: vi.fn().mockResolvedValue({ ok: true }),
+  },
+  summary: vi.fn(),
+  holidays: vi.fn(),
+  exportData: vi.fn(),
+  deleteAccount: vi.fn(),
 }))
 
 import ScanPage from './ScanPage'
+
+const render = (ui) => baseRender(<MemoryRouter>{ui}</MemoryRouter>)
 
 beforeEach(() => {
   lastOnDecode = null
@@ -37,9 +54,10 @@ afterEach(() => {
 })
 
 describe('ScanPage', () => {
-  it('renders idle state with the QR scanner mounted', () => {
+  it('renders idle state with the QR scanner mounted', async () => {
     render(<ScanPage />)
-    expect(screen.getByRole('heading', { name: /pointage/i })).toBeInTheDocument()
+    // Wait for the consent fetch to resolve and the scanner to mount.
+    expect(await screen.findByRole('heading', { name: /scanner/i })).toBeInTheDocument()
     expect(screen.getByTestId('mock-qr-scanner')).toBeInTheDocument()
     expect(screen.getByText(/présentez le QR code/i)).toBeInTheDocument()
   })

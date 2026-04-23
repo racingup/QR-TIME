@@ -1,0 +1,36 @@
+---
+const problems = [
+  {
+    kpi: '2–5%',
+    title: 'La fraude invisible',
+    body: "2 à 5% de la masse salariale disparaît dans les pointages approximatifs, les badges partagés et les feuilles de papier ajustées après coup. Sur 50 collaborateurs, c'est jusqu'à 180 000 CHF par an.",
+  },
+  {
+    kpi: '250k CHF',
+    title: "La conformité en équilibre",
+    body: "La LTr et la nLPD exigent une traçabilité fiable du temps de travail. Tableurs et feuilles papier ne tiennent pas face à un contrôle — et exposent à des amendes jusqu'à 250 000 CHF.",
+  },
+  {
+    kpi: '6 h / sem',
+    title: 'Le temps RH gaspillé',
+    body: "Saisies manuelles, relances, corrections : un·e RH perd en moyenne 6 heures par semaine à reconstituer les pointages. Ce temps devrait servir à vos équipes, pas à un tableur.",
+  },
+];
+---
+<section class="section">
+  <div class="max-w-3xl mb-14">
+    <div class="eyebrow mb-4">Le problème</div>
+    <h2 class="font-display text-display-lg font-semibold text-ink-900">
+      Le pointage traditionnel vous coûte plus cher que vous ne le pensez.
+    </h2>
+  </div>
+  <div class="grid md:grid-cols-3 gap-5">
+    {problems.map((p) => (
+      <div class="card">
+        <div class="font-display text-4xl font-semibold text-brand mb-4 tracking-tight">{p.kpi}</div>
+        <h3 class="text-lg font-semibold text-ink-900 mb-2">{p.title}</h3>
+        <p class="text-ink-600 leading-relaxed text-[0.95rem]">{p.body}</p>
+      </div>
+    ))}
+  </div>
+</section>
