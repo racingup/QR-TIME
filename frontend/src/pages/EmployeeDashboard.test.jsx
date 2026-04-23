@@ -1,4 +1,5 @@
-import { render, screen, waitFor } from '@testing-library/react'
+import { render as baseRender, screen, waitFor } from '@testing-library/react'
+import { MemoryRouter } from 'react-router-dom'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { aliceHistory, aliceSummary } from '../test/fixtures'
 
@@ -12,10 +13,14 @@ vi.mock('../api/clock', () => ({
   history: (m) => historyMock(m),
   today: vi.fn(),
   scan: vi.fn(),
+  day: vi.fn(),
   regularize: vi.fn(),
+  editSession: vi.fn(),
 }))
 
 import EmployeeDashboard from './EmployeeDashboard'
+
+const render = (ui) => baseRender(<MemoryRouter>{ui}</MemoryRouter>)
 
 beforeEach(() => {
   summaryMock.mockReset()

@@ -1,4 +1,5 @@
 import { useMemo, useState } from 'react'
+import { Link } from 'react-router-dom'
 import { useEmployee } from '../hooks/useEmployee'
 
 function pad(n) {
@@ -98,15 +99,23 @@ export default function EmployeeDashboard() {
                 .filter((s) => s.clock_out_rounded)
                 .reduce((a, s) => a + s.duration_minutes, 0)
               return (
-                <li key={day} className="py-2 flex items-center gap-3 text-sm">
-                  <span
-                    className={`inline-block w-3 h-3 rounded-full ${statusColor(sessions[0])}`}
-                    aria-hidden
-                  />
-                  <span className="font-mono">{day}</span>
-                  <span className="text-gray-500 ml-auto">
-                    {Math.floor(totalMin / 60)}h{pad(totalMin % 60)}
-                  </span>
+                <li key={day} className="py-2">
+                  <Link
+                    to={`/history/${day}`}
+                    className="flex items-center gap-3 text-sm hover:bg-gray-50 rounded px-1 -mx-1"
+                  >
+                    <span
+                      className={`inline-block w-3 h-3 rounded-full ${statusColor(sessions[0])}`}
+                      aria-hidden
+                    />
+                    <span className="font-mono">{day}</span>
+                    <span className="text-xs text-gray-400">
+                      {sessions.length} session{sessions.length > 1 ? 's' : ''}
+                    </span>
+                    <span className="text-gray-500 ml-auto">
+                      {Math.floor(totalMin / 60)}h{pad(totalMin % 60)}
+                    </span>
+                  </Link>
                 </li>
               )
             })}

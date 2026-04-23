@@ -83,13 +83,17 @@ class Command(BaseCommand):
 
         # ── Approved mission (alice, today, REMOTE) ───────────────────
         today = timezone.localdate()
+        # Use the unique qr_token as the lookup key so re-seeding on a
+        # different `today` updates the same row instead of duplicating.
         mission, _ = Mission.objects.update_or_create(
-            user=alice, mission_type=Mission.Type.REMOTE, date_start=today,
+            qr_token="demo-mission-alice-token",
             defaults={
+                "user": alice,
+                "mission_type": Mission.Type.REMOTE,
+                "date_start": today,
                 "date_end": today,
                 "status": Mission.Status.APPROVED,
                 "approved_by": manager,
-                "qr_token": "demo-mission-alice-token",
                 "manager_comment": "OK pour télétravail aujourd'hui.",
             },
         )

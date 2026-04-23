@@ -29,6 +29,17 @@ class UserProfile(AbstractUser):
         help_text="Solde heures sup en heures (positif ou négatif).",
     )
     is_manager = models.BooleanField(default=False)
+    is_mission_manager = models.BooleanField(
+        default=False,
+        help_text="Peut attribuer et valider des missions transversalement (tous sites).",
+    )
+    home_site = models.ForeignKey(
+        "users.Site",
+        on_delete=models.SET_NULL,
+        null=True, blank=True,
+        related_name="users",
+        help_text="Site de rattachement principal du collaborateur.",
+    )
 
     @property
     def daily_target_hours(self) -> Decimal:
@@ -83,6 +94,95 @@ class ToleranceConfig(models.Model):
     def load(cls) -> "ToleranceConfig":
         obj, _ = cls.objects.get_or_create(pk=1)
         return obj
+
+
+class SiteHoliday(models.Model):
+    """Jour férié spécifique à un site (ex : journée portes fermées, pont, …)."""
+
+    site = models.ForeignKey(
+        Site, on_delete=models.CASCADE, related_name="holidays",
+    )
+    date = models.DateField()
+    name = models.CharField(max_length=100)
+
+    class Meta:
+        ordering = ["date"]
+        constraints = [
+            models.UniqueConstraint(fields=["site", "date"], name="unique_holiday_per_site_date"),
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.site.name} — {self.date} ({self.name})"
+
+
+class ConsentLog(models.Model):
+    """Trace des consentements (Art. 6 al. 6 LPD — preuve du consentement)."""
+
+    class Kind(models.TextChoices):
+        GPS = "GPS", "Géolocalisation pour pointage"
+        STORAGE = "STORAGE", "Stockage local de la session (JWT)"
+        PRIVACY_POLICY = "PRIVACY_POLICY", "Politique de confidentialité"
+
+    user = models.ForeignKey(
+        "users.UserProfile", on_delete=models.CASCADE, related_name="consents",
+    )
+    kind = models.CharField(max_length=32, choices=Kind.choices)
+    granted = models.BooleanField()
+    policy_version = models.CharField(max_length=20, blank=True)
+    ip_address = models.GenericIPAddressField(null=True, blank=True)
+    user_agent = models.CharField(max_length=300, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["-created_at"]
+        indexes = [models.Index(fields=["user", "kind", "-created_at"])]
+
+    def __str__(self) -> str:
+        return f"{self.user_id} {self.kind} {'✓' if self.granted else '✗'} @ {self.created_at}"
+
+
+class AdminAuditLog(models.Model):
+    """Journal des actions administratives sensibles (Art. 12 LPD + Art. 8 LPD).
+
+    Permet de tracer qui (manager/superuser) a fait quoi sur les données
+    d'un autre utilisateur. Volontairement append-only — ne jamais éditer.
+    """
+
+    class Action(models.TextChoices):
+        USER_CREATE = "USER_CREATE", "Création utilisateur"
+        USER_UPDATE = "USER_UPDATE", "Modification utilisateur"
+        USER_DELETE = "USER_DELETE", "Suppression / anonymisation utilisateur"
+        ROLE_CHANGE = "ROLE_CHANGE", "Changement de rôle"
+        SESSION_EDIT = "SESSION_EDIT", "Édition d'un pointage"
+        ABSENCE_DECISION = "ABSENCE_DECISION", "Décision sur une absence"
+        MISSION_DECISION = "MISSION_DECISION", "Décision sur une mission"
+        DATA_EXPORT = "DATA_EXPORT", "Export de données utilisateur"
+        SITE_QR_ROTATE = "SITE_QR_ROTATE", "Rotation QR site"
+        DATA_PURGED = "DATA_PURGED", "Purge rétention LPD"
+
+    actor = models.ForeignKey(
+        "users.UserProfile", on_delete=models.SET_NULL,
+        null=True, blank=True, related_name="audit_actions",
+        help_text="Qui a effectué l'action (null si système).",
+    )
+    action = models.CharField(max_length=32, choices=Action.choices)
+    target_user = models.ForeignKey(
+        "users.UserProfile", on_delete=models.SET_NULL,
+        null=True, blank=True, related_name="audit_targets",
+        help_text="Sur quel utilisateur l'action a porté.",
+    )
+    object_type = models.CharField(max_length=80, blank=True)
+    object_id = models.CharField(max_length=80, blank=True)
+    details = models.JSONField(default=dict, blank=True)
+    ip_address = models.GenericIPAddressField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["-created_at"]
+        indexes = [
+            models.Index(fields=["target_user", "-created_at"]),
+            models.Index(fields=["action", "-created_at"]),
+        ]
 
 
 class SiteQRAudit(models.Model):

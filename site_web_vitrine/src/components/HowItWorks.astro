@@ -1,0 +1,39 @@
+---
+const steps = [
+  {
+    n: '01',
+    title: 'Scanner',
+    body: "Le collaborateur scanne le QR code affiché sur site (imprimé, papier, permanent) avec son smartphone. Pas d'app à installer — ça s'ouvre dans le navigateur.",
+  },
+  {
+    n: '02',
+    title: 'Valider',
+    body: "QRtime vérifie la position géographique en temps réel — traitement local, proportionné et conforme à la LPD. Hors zone ? Le pointage est refusé avec la distance exacte affichée.",
+  },
+  {
+    n: '03',
+    title: "C'est tracé",
+    body: 'Horodaté, signé, archivé. Le manager voit son équipe en temps réel. Heures supplémentaires, plages fixes et arrondis sont calculés automatiquement.',
+  },
+];
+---
+<section class="section">
+  <div class="max-w-3xl mb-14">
+    <div class="eyebrow mb-4">Comment ça marche</div>
+    <h2 class="font-display text-display-lg font-semibold text-ink-900">
+      Trois gestes. <span class="text-ink-400">Zéro triche.</span>
+    </h2>
+  </div>
+  <div class="grid md:grid-cols-3 gap-5 relative">
+    {steps.map((s, i) => (
+      <div class="card relative">
+        <div class="flex items-center gap-3 mb-5">
+          <span class="font-mono text-sm text-ink-400">{s.n}</span>
+          <div class="h-px flex-1 bg-ink-200/70"></div>
+        </div>
+        <h3 class="text-xl font-semibold text-ink-900 mb-3">{s.title}</h3>
+        <p class="text-ink-600 leading-relaxed">{s.body}</p>
+      </div>
+    ))}
+  </div>
+</section>

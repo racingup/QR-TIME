@@ -12,21 +12,30 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from apps.clocking.models import ClockSession
-from apps.users.models import Site, SiteQRAudit, ToleranceConfig, UserProfile
-from apps.users.permissions import IsManager
+from apps.users.models import (
+    AdminAuditLog,
+    ConsentLog,
+    Site,
+    SiteHoliday,
+    SiteQRAudit,
+    ToleranceConfig,
+    UserProfile,
+)
+from apps.users.permissions import IsManager, IsSuperUser
 from apps.users.serializers import (
     AdminUserSerializer,
+    SiteHolidaySerializer,
     SiteSerializer,
     ToleranceConfigSerializer,
 )
 
 
 class SiteViewSet(viewsets.ModelViewSet):
-    """CRUD on Sites — manager only."""
+    """CRUD on Sites — superuser only (réglage de paramétrage admin)."""
 
     queryset = Site.objects.all().order_by("name")
     serializer_class = SiteSerializer
-    permission_classes = [IsManager]
+    permission_classes = [IsSuperUser]
 
     @action(detail=True, methods=["get"], url_path="qr")
     def qr(self, request, pk=None):
@@ -44,6 +53,7 @@ class SiteViewSet(viewsets.ModelViewSet):
     @action(detail=True, methods=["post"], url_path="regen-qr")
     def regen_qr(self, request, pk=None):
         """POST /api/admin/sites/{id}/regen-qr/ — rotate the site's QR token."""
+        from services.audit import log_admin_action
         site = self.get_object()
         old_token = site.qr_code_token
         new_token = site.regenerate_token()
@@ -52,6 +62,13 @@ class SiteViewSet(viewsets.ModelViewSet):
             old_token=old_token,
             new_token=new_token,
             regenerated_by=request.user,
+        )
+        log_admin_action(
+            actor=request.user,
+            action=AdminAuditLog.Action.SITE_QR_ROTATE,
+            object_type="Site", object_id=site.id,
+            details={"site_name": site.name},
+            request=request,
         )
         return Response(
             {
@@ -64,10 +81,27 @@ class SiteViewSet(viewsets.ModelViewSet):
         )
 
 
-class ToleranceConfigView(APIView):
-    """GET / PUT /api/admin/tolerance/ — singleton config."""
+class SiteHolidayViewSet(viewsets.ModelViewSet):
+    """CRUD on holidays — superuser only (paramétrage des sites).
 
-    permission_classes = [IsManager]
+    `GET /api/admin/holidays/` lists everything; pass `?site=N` to filter.
+    """
+
+    serializer_class = SiteHolidaySerializer
+    permission_classes = [IsSuperUser]
+
+    def get_queryset(self):
+        qs = SiteHoliday.objects.all().order_by("date")
+        site_id = self.request.query_params.get("site")
+        if site_id:
+            qs = qs.filter(site_id=site_id)
+        return qs
+
+
+class ToleranceConfigView(APIView):
+    """GET / PUT /api/admin/tolerance/ — singleton config (superuser only)."""
+
+    permission_classes = [IsSuperUser]
 
     def get(self, request):
         return Response(ToleranceConfigSerializer(ToleranceConfig.load()).data)
@@ -78,6 +112,186 @@ class ToleranceConfigView(APIView):
         ser.is_valid(raise_exception=True)
         ser.save()
         return Response(ser.data)
+
+
+PRIVACY_POLICY_VERSION = "2026-04-01"
+
+
+def _client_ip(request):
+    fwd = request.META.get("HTTP_X_FORWARDED_FOR", "")
+    if fwd:
+        return fwd.split(",")[0].strip()
+    return request.META.get("REMOTE_ADDR")
+
+
+class MeConsentView(APIView):
+    """GET / POST /api/me/consent/ — gestion du consentement (Art. 6 al. 6 LPD).
+
+    GET  → état courant : {gps, storage, privacy_policy} (booléen + dernière maj)
+    POST → enregistre un consentement : {kind, granted}
+    """
+
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        out = {"policy_version": PRIVACY_POLICY_VERSION}
+        for kind in ("GPS", "STORAGE", "PRIVACY_POLICY"):
+            last = (
+                ConsentLog.objects
+                .filter(user=request.user, kind=kind)
+                .order_by("-created_at")
+                .first()
+            )
+            out[kind.lower()] = (
+                {
+                    "granted": last.granted,
+                    "policy_version": last.policy_version,
+                    "at": last.created_at,
+                }
+                if last
+                else None
+            )
+        return Response(out)
+
+    def post(self, request):
+        kind = request.data.get("kind")
+        if kind not in ("GPS", "STORAGE", "PRIVACY_POLICY"):
+            return Response({"error": "INVALID_KIND"}, status=status.HTTP_400_BAD_REQUEST)
+        granted = bool(request.data.get("granted"))
+        ConsentLog.objects.create(
+            user=request.user,
+            kind=kind,
+            granted=granted,
+            policy_version=PRIVACY_POLICY_VERSION if kind == "PRIVACY_POLICY" else "",
+            ip_address=_client_ip(request),
+            user_agent=(request.META.get("HTTP_USER_AGENT") or "")[:300],
+        )
+        return Response({"ok": True, "kind": kind, "granted": granted})
+
+
+class MeExportView(APIView):
+    """GET /api/me/export/ — droit d'accès et de portabilité (Art. 25 et 28 LPD).
+
+    Retourne un JSON contenant toutes les données personnelles de l'utilisateur.
+    Loggé dans AdminAuditLog (DATA_EXPORT) pour traçabilité.
+    """
+
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        from apps.absences.models import AbsenceRequest
+        from apps.absences.serializers import AbsenceRequestSerializer
+        from apps.clocking.models import ClockSession
+        from apps.clocking.serializers import ClockSessionSerializer
+        from apps.missions.models import Mission
+        from apps.missions.serializers import MissionSerializer
+        from services.audit import log_admin_action
+
+        user = request.user
+        log_admin_action(
+            actor=user, action=AdminAuditLog.Action.DATA_EXPORT,
+            target_user=user, object_type="self_export",
+            request=request,
+        )
+        return Response({
+            "exported_at": timezone.now(),
+            "policy_version": PRIVACY_POLICY_VERSION,
+            "profile": {
+                "id": user.id,
+                "username": user.username,
+                "email": user.email,
+                "first_name": user.first_name,
+                "last_name": user.last_name,
+                "weekly_target_hours": user.weekly_target_hours,
+                "vacation_quota": user.vacation_quota,
+                "vacation_used": user.vacation_used,
+                "overtime_balance_hours": user.overtime_balance,
+                "is_manager": user.is_manager,
+                "is_superuser": user.is_superuser,
+                "home_site_id": user.home_site_id,
+                "date_joined": user.date_joined,
+                "last_login": user.last_login,
+            },
+            "clock_sessions": ClockSessionSerializer(
+                ClockSession.objects.filter(user=user).order_by("clock_in"), many=True,
+            ).data,
+            "missions": MissionSerializer(
+                Mission.objects.filter(user=user).order_by("created_at"), many=True,
+            ).data,
+            "absences": AbsenceRequestSerializer(
+                AbsenceRequest.objects.filter(user=user).order_by("created_at"), many=True,
+            ).data,
+            "consents": [
+                {
+                    "kind": c.kind, "granted": c.granted,
+                    "policy_version": c.policy_version,
+                    "at": c.created_at,
+                }
+                for c in user.consents.order_by("-created_at")
+            ],
+        })
+
+
+class MeDeleteAccountView(APIView):
+    """POST /api/me/delete-account/ — droit à la destruction (Art. 32 al. 2 LPD).
+
+    Pseudonymise le compte (les pointages restent à des fins comptables et
+    légales — Art. 73 OLT 1 / Art. 958f CO — rattachés à un compte anonyme
+    `deleted_N` incrémental ; l'id interne est préservé pour conserver
+    l'intégrité des rapports historiques).
+    Confirmation explicite requise via {"confirm": "DELETE"}.
+    """
+
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request):
+        from services.audit import anonymize_user, log_admin_action
+
+        if request.data.get("confirm") != "DELETE":
+            return Response(
+                {"error": "CONFIRMATION_REQUIRED",
+                 "hint": 'POST {"confirm": "DELETE"} to proceed'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        if request.user.is_superuser:
+            return Response(
+                {"error": "SUPERUSER_CANNOT_SELF_DELETE",
+                 "hint": "Demandez à un autre superuser de supprimer ce compte."},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+        target = request.user
+        log_admin_action(
+            actor=target, action=AdminAuditLog.Action.USER_DELETE,
+            target_user=target, object_type="self_anonymization",
+            details={"reason": "user_request_lpd_art32_al2"},
+            request=request,
+        )
+        anonymize_user(target)
+        return Response({"ok": True, "anonymized": True})
+
+
+class MeHolidaysView(APIView):
+    """GET /api/me/holidays/?start=YYYY-MM-DD&end=YYYY-MM-DD — holidays of the user's home_site."""
+
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        from datetime import date as date_type
+        user = request.user
+        if not user.home_site_id:
+            return Response([])
+        raw_s = request.query_params.get("start")
+        raw_e = request.query_params.get("end")
+        qs = SiteHoliday.objects.filter(site_id=user.home_site_id)
+        if raw_s and raw_e:
+            try:
+                qs = qs.filter(
+                    date__gte=date_type.fromisoformat(raw_s),
+                    date__lte=date_type.fromisoformat(raw_e),
+                )
+            except ValueError:
+                return Response({"error": "INVALID_RANGE"}, status=status.HTTP_400_BAD_REQUEST)
+        return Response(SiteHolidaySerializer(qs.order_by("date"), many=True).data)
 
 
 class MeSummaryView(APIView):
@@ -95,9 +309,20 @@ class MeSummaryView(APIView):
             s.duration_minutes for s in sessions_today if s.clock_out_rounded
         )
         open_session = sessions_today.filter(clock_out__isnull=True).first()
+        home_site = None
+        if user.home_site_id:
+            s = user.home_site
+            home_site = {
+                "id": s.id,
+                "name": s.name,
+                "latitude": float(s.latitude),
+                "longitude": float(s.longitude),
+                "gps_radius_meters": s.gps_radius_meters,
+            }
         return Response({
             "username": user.get_username(),
             "is_manager": user.is_manager,
+            "is_mission_manager": user.is_mission_manager,
             "is_superuser": user.is_superuser,
             "weekly_target_hours": user.weekly_target_hours,
             "daily_target_hours": user.daily_target_hours,
@@ -105,6 +330,7 @@ class MeSummaryView(APIView):
             "vacation_quota": user.vacation_quota,
             "vacation_used": user.vacation_used,
             "vacation_remaining": Decimal(user.vacation_quota) - user.vacation_used,
+            "home_site": home_site,
             "today": {
                 "worked_minutes": worked_minutes,
                 "target_minutes": int(user.daily_target_hours * 60),
@@ -113,9 +339,106 @@ class MeSummaryView(APIView):
         })
 
 
+class AdminAuditLogView(APIView):
+    """GET /api/admin/audit/?action=&target_user=&start=&end=&limit=
+
+    Liste paginée du journal d'audit (Art. 12 LPD). Superuser uniquement.
+    Append-only — aucune méthode d'écriture exposée ici.
+    """
+
+    permission_classes = [IsSuperUser]
+
+    def get(self, request):
+        from datetime import date as date_type
+        qs = AdminAuditLog.objects.select_related("actor", "target_user").order_by("-created_at")
+        action = request.query_params.get("action")
+        if action:
+            qs = qs.filter(action=action)
+        target = request.query_params.get("target_user")
+        if target:
+            qs = qs.filter(target_user_id=target)
+        actor = request.query_params.get("actor")
+        if actor:
+            qs = qs.filter(actor_id=actor)
+        start = request.query_params.get("start")
+        if start:
+            try:
+                qs = qs.filter(created_at__date__gte=date_type.fromisoformat(start))
+            except ValueError:
+                pass
+        end = request.query_params.get("end")
+        if end:
+            try:
+                qs = qs.filter(created_at__date__lte=date_type.fromisoformat(end))
+            except ValueError:
+                pass
+        try:
+            limit = max(1, min(500, int(request.query_params.get("limit", 100))))
+        except (TypeError, ValueError):
+            limit = 100
+        rows = qs[:limit]
+        return Response({
+            "count": len(rows),
+            "limit": limit,
+            "results": [
+                {
+                    "id": r.id,
+                    "action": r.action,
+                    "actor_id": r.actor_id,
+                    "actor_username": r.actor.get_username() if r.actor else None,
+                    "target_user_id": r.target_user_id,
+                    "target_username": r.target_user.get_username() if r.target_user else None,
+                    "object_type": r.object_type,
+                    "object_id": r.object_id,
+                    "details": r.details,
+                    "ip_address": r.ip_address,
+                    "created_at": r.created_at,
+                }
+                for r in rows
+            ],
+            "actions_choices": [
+                {"value": v, "label": l} for v, l in AdminAuditLog.Action.choices
+            ],
+        })
+
+
 class AdminUserViewSet(viewsets.ModelViewSet):
-    """CRUD on UserProfile — manager only."""
+    """CRUD on UserProfile — superuser only (create / delete / edit collaborators)."""
 
     queryset = UserProfile.objects.all().order_by("username")
     serializer_class = AdminUserSerializer
-    permission_classes = [IsManager]
+    permission_classes = [IsSuperUser]
+
+    def perform_create(self, serializer):
+        from services.audit import log_admin_action
+        instance = serializer.save()
+        log_admin_action(
+            actor=self.request.user, action=AdminAuditLog.Action.USER_CREATE,
+            target_user=instance, request=self.request,
+        )
+
+    def perform_update(self, serializer):
+        from services.audit import log_admin_action
+        prev_is_manager = serializer.instance.is_manager
+        instance = serializer.save()
+        action = (
+            AdminAuditLog.Action.ROLE_CHANGE
+            if instance.is_manager != prev_is_manager
+            else AdminAuditLog.Action.USER_UPDATE
+        )
+        log_admin_action(
+            actor=self.request.user, action=action,
+            target_user=instance,
+            details={"is_manager": instance.is_manager} if action == AdminAuditLog.Action.ROLE_CHANGE else {},
+            request=self.request,
+        )
+
+    def perform_destroy(self, instance):
+        # Anonymisation au lieu de delete brut.
+        from services.audit import anonymize_user, log_admin_action
+        log_admin_action(
+            actor=self.request.user, action=AdminAuditLog.Action.USER_DELETE,
+            target_user=instance, details={"reason": "admin_action"},
+            request=self.request,
+        )
+        anonymize_user(instance)

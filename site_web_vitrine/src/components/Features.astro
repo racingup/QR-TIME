@@ -1,0 +1,78 @@
+---
+const features = [
+  {
+    icon: 'qr',
+    title: 'QR papier statique',
+    body: "Imprimez le QR une fois, collez-le à l'entrée. Pas de batterie, pas de panne, pas de renouvellement automatique. Si besoin de rotation, un clic dans l'admin.",
+  },
+  {
+    icon: 'shield',
+    title: 'Géolocalisation anti-fraude',
+    body: "Rayon configurable par site, validation de position proportionnée et conforme à la LPD. Si le collaborateur n'est pas physiquement présent, le pointage est bloqué.",
+  },
+  {
+    icon: 'briefcase',
+    title: 'Missions & itinérance',
+    body: 'Chaque mission génère un QR nominatif, lié à l\'utilisateur et à une période. Idéal pour les déplacements client, chantiers externes, interventions terrain.',
+  },
+  {
+    icon: 'clock',
+    title: 'Heures sup automatiques',
+    body: 'Calcul au dernier pointage de la journée. Solde consultable en temps réel par chaque collaborateur. Fini les contestations de fin de mois.',
+  },
+  {
+    icon: 'calendar',
+    title: 'Plages fixes & arrondis',
+    body: 'Horaires officiels avec tolérance configurable. Pointages hors plage marqués pour justification. Arrondis intelligents (08:58 → 09:00).',
+  },
+  {
+    icon: 'bell',
+    title: "Alerte oubli de pointage",
+    body: 'Tâche planifiée à 20h00 : chaque oubli déclenche une alerte au manager. Le collaborateur peut régulariser avec motif.',
+  },
+  {
+    icon: 'users',
+    title: 'Multi-sites, multi-équipes',
+    body: "Plusieurs sites, plusieurs managers, plusieurs niveaux d'approbation. Anti-auto-approbation intégré : un manager ne valide jamais ses propres demandes.",
+  },
+  {
+    icon: 'export',
+    title: 'Exports paie',
+    body: 'Export CSV/Excel compatibles avec vos logiciels de paie suisses. Périodes personnalisables. Archivage conforme 10 ans.',
+  },
+];
+
+const icons = {
+  qr: '<rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="3" height="3"/><rect x="18" y="14" width="3" height="3"/><rect x="14" y="18" width="3" height="3"/><rect x="18" y="18" width="3" height="3"/>',
+  shield: '<path d="M12 2l8 4v6c0 5-3.5 9.5-8 10-4.5-.5-8-5-8-10V6l8-4z"/>',
+  briefcase: '<rect x="3" y="7" width="18" height="13" rx="2"/><path d="M8 7V5a2 2 0 012-2h4a2 2 0 012 2v2"/>',
+  clock: '<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>',
+  calendar: '<rect x="3" y="5" width="18" height="16" rx="2"/><path d="M3 10h18M8 3v4M16 3v4"/>',
+  bell: '<path d="M6 9a6 6 0 1112 0c0 5 2 6 2 6H4s2-1 2-6zM10 20a2 2 0 004 0"/>',
+  users: '<circle cx="9" cy="8" r="4"/><path d="M2 21c0-4 3-7 7-7s7 3 7 7M17 11a4 4 0 000-8M22 21c0-3.5-2-6-5-6.8"/>',
+  export: '<path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4M7 10l5-5 5 5M12 5v12"/>',
+};
+---
+<section id="fonctionnalites" class="section">
+  <div class="max-w-3xl mb-14">
+    <div class="eyebrow mb-4">Fonctionnalités</div>
+    <h2 class="font-display text-display-lg font-semibold text-ink-900 mb-4">
+      Une seule plateforme pour tous vos modes de travail.
+    </h2>
+    <p class="text-lg text-ink-600 leading-relaxed">
+      Bureau, chantier, mission client, télétravail, tournée — QRtime s'adapte à chaque situation
+      sans jamais baisser sa garde.
+    </p>
+  </div>
+  <div class="grid sm:grid-cols-2 lg:grid-cols-4 gap-5">
+    {features.map((f) => (
+      <div class="card group hover:-translate-y-1 transition-transform duration-300">
+        <div class="w-11 h-11 rounded-xl bg-ink-900 text-white flex items-center justify-center mb-5">
+          <svg viewBox="0 0 24 24" class="w-5 h-5" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" set:html={icons[f.icon]}></svg>
+        </div>
+        <h3 class="font-semibold text-ink-900 mb-2 text-[1.05rem]">{f.title}</h3>
+        <p class="text-ink-600 text-sm leading-relaxed">{f.body}</p>
+      </div>
+    ))}
+  </div>
+</section>

@@ -1,0 +1,33 @@
+---
+import '../styles/global.css';
+export interface Props {
+  title?: string;
+  description?: string;
+}
+const {
+  title = 'QRtime.ch — Pointage numérique suisse · QR + GPS',
+  description = "Le pointage qui prouve la présence. Bureau, mission, terrain. Hébergé en Suisse chez AlpiVault. Conforme à la LPD.",
+} = Astro.props;
+---
+<!doctype html>
+<html lang="fr">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="description" content={description} />
+    <meta name="theme-color" content="#F5F6F8" />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <link rel="preconnect" href="https://rsms.me/" />
+    <link rel="stylesheet" href="https://rsms.me/inter/inter.css" />
+    <title>{title}</title>
+    <meta property="og:title" content={title} />
+    <meta property="og:description" content={description} />
+    <meta property="og:type" content="website" />
+    <meta property="og:locale" content="fr_CH" />
+  </head>
+  <body class="font-sans text-ink-900 antialiased">
+    <div class="page-bg min-h-screen">
+      <slot />
+    </div>
+  </body>
+</html>

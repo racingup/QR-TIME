@@ -1,5 +1,6 @@
-import { render, screen, waitFor } from '@testing-library/react'
+import { render as baseRender, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
+import { MemoryRouter } from 'react-router-dom'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import {
   alerts as alertsFixture,
@@ -9,124 +10,165 @@ import {
 } from '../test/fixtures'
 
 const presenceMock = vi.fn()
+const absentMock = vi.fn()
 const alertsMock = vi.fn()
+const reportMock = vi.fn()
 const pendingMissionsMock = vi.fn()
 const pendingAbsencesMock = vi.fn()
 const approveMissionMock = vi.fn()
 const rejectMissionMock = vi.fn()
 const approveAbsenceMock = vi.fn()
+const rejectAbsenceMock = vi.fn()
 
 vi.mock('../api/manager', () => ({
   presence: () => presenceMock(),
+  absent: () => absentMock(),
   alerts: () => alertsMock(),
+  report: (m) => reportMock(m),
+  reportDownloadUrl: (m, f) => `/dl?m=${m}&f=${f}`,
 }))
 vi.mock('../api/missions', () => ({
   pending: () => pendingMissionsMock(),
-  approve: (id, comment) => approveMissionMock(id, comment),
+  approve: (id, payload) => approveMissionMock(id, payload),
   reject: (id, comment) => rejectMissionMock(id, comment),
   my: vi.fn(), create: vi.fn(), qr: vi.fn(),
 }))
 vi.mock('../api/absences', () => ({
   pending: () => pendingAbsencesMock(),
   approve: (id, comment) => approveAbsenceMock(id, comment),
-  my: vi.fn(), create: vi.fn(),
+  reject: (id, comment) => rejectAbsenceMock(id, comment),
+  my: vi.fn(), create: vi.fn(), update: vi.fn(),
+}))
+
+// useAuth context — returns a manager (not the same id as the test fixtures' user)
+vi.mock('../hooks/useAuth', () => ({
+  useAuth: () => ({
+    user: { id: 999, username: 'test-mgr', is_manager: true, is_superuser: false },
+  }),
 }))
 
 import ManagerDashboard from './ManagerDashboard'
 
+const render = (ui) => baseRender(<MemoryRouter>{ui}</MemoryRouter>)
+
 beforeEach(() => {
   presenceMock.mockReset()
+  absentMock.mockReset()
   alertsMock.mockReset()
+  reportMock.mockReset()
   pendingMissionsMock.mockReset()
   pendingAbsencesMock.mockReset()
   approveMissionMock.mockReset()
   rejectMissionMock.mockReset()
   approveAbsenceMock.mockReset()
+  rejectAbsenceMock.mockReset()
 })
 
 afterEach(() => vi.clearAllMocks())
 
 const primeHappyPath = () => {
   presenceMock.mockResolvedValue(presenceFixture)
+  absentMock.mockResolvedValue({
+    absent_on_leave: [
+      {
+        user_id: 3, username: 'bob', absence_type: 'SICK',
+        date_start: '2026-04-21', date_end: '2026-04-21',
+        half_day_start: false, half_day_end: false,
+      },
+    ],
+    silent: [],
+  })
   alertsMock.mockResolvedValue(alertsFixture)
   pendingMissionsMock.mockResolvedValue(pendingMissions)
   pendingAbsencesMock.mockResolvedValue(pendingAbsences)
 }
 
-describe('ManagerDashboard', () => {
-  it('renders without crashing (shows loading first)', () => {
-    presenceMock.mockReturnValue(new Promise(() => {}))
-    alertsMock.mockReturnValue(new Promise(() => {}))
-    pendingMissionsMock.mockReturnValue(new Promise(() => {}))
-    pendingAbsencesMock.mockReturnValue(new Promise(() => {}))
+describe('ManagerDashboard — overview', () => {
+  it('renders without crashing (loading then content)', async () => {
+    primeHappyPath()
     render(<ManagerDashboard />)
-    expect(screen.getByText(/chargement/i)).toBeInTheDocument()
+    expect(await screen.findByText(/temps réel/i)).toBeInTheDocument()
   })
 
-  it('shows presence, pending missions, and pending absences from the API', async () => {
+  it('shows present, absent (red), pending mission and absence', async () => {
     primeHappyPath()
     render(<ManagerDashboard />)
 
-    expect(await screen.findByText(/présence en temps réel/i)).toHaveTextContent('(1)')
+    expect(await screen.findByText(/temps réel/i)).toHaveTextContent('présence (1)')
+    expect(screen.getByText(/temps réel/i)).toHaveTextContent('absents (1)')
+    // alice present
     expect(screen.getByText('alice')).toBeInTheDocument()
-    expect(screen.getByText(/Siège Paris/)).toBeInTheDocument()
-
-    // Pending mission label shows mission_type.
+    // bob absent
+    expect(screen.getByText('bob')).toBeInTheDocument()
+    // pending mission row (FIELD)
     expect(screen.getByText(/FIELD/)).toBeInTheDocument()
-    // Pending absence label shows absence_type.
+    // pending absence row (VACATION)
     expect(screen.getByText(/VACATION/)).toBeInTheDocument()
   })
 
-  it('calls missions.approve when the Valider button is clicked, then refreshes', async () => {
+  it('opens approve modal and submits with manager-set radius', async () => {
     primeHappyPath()
     approveMissionMock.mockResolvedValue({ id: 42, status: 'APPROVED' })
-    // Second fetch pass returns an emptied pending list.
     pendingMissionsMock.mockResolvedValueOnce(pendingMissions).mockResolvedValue({
       count: 0, results: [],
     })
 
     render(<ManagerDashboard />)
-    await screen.findByText(/FIELD/) // initial data loaded
-
-    const approveButtons = screen.getAllByRole('button', { name: /valider/i })
-    await userEvent.click(approveButtons[0])
-
-    await waitFor(() =>
-      expect(approveMissionMock).toHaveBeenCalledWith(42, ''),
-    )
-    await waitFor(() => expect(pendingMissionsMock).toHaveBeenCalledTimes(2))
-  })
-
-  it('calls missions.reject with a prompt comment on Refuser', async () => {
-    primeHappyPath()
-    rejectMissionMock.mockResolvedValue({ id: 42, status: 'REJECTED' })
-    const promptSpy = vi.spyOn(window, 'prompt').mockReturnValue('Pas pertinent')
-
-    render(<ManagerDashboard />)
     await screen.findByText(/FIELD/)
+    await userEvent.click(screen.getByRole('button', { name: /approuver/i }))
 
-    const rejectButtons = screen.getAllByRole('button', { name: /refuser/i })
-    await userEvent.click(rejectButtons[0])
+    // Modal opens with the requested radius prefilled (300 in fixture).
+    const radiusInput = await screen.findByRole('spinbutton')
+    expect(radiusInput).toHaveValue(300)
+    await userEvent.clear(radiusInput)
+    await userEvent.type(radiusInput, '450')
+    // Click the modal's "Approuver" button (second on the page now).
+    const buttons = screen.getAllByRole('button', { name: /approuver/i })
+    await userEvent.click(buttons[buttons.length - 1])
 
     await waitFor(() =>
-      expect(rejectMissionMock).toHaveBeenCalledWith(42, 'Pas pertinent'),
+      expect(approveMissionMock).toHaveBeenCalledWith(
+        42,
+        expect.objectContaining({ gps_radius_meters: 450 }),
+      ),
     )
-    promptSpy.mockRestore()
   })
 
-  it('calls absences.approve on the second Valider button', async () => {
+  it('approves an absence directly from the list', async () => {
     primeHappyPath()
     approveAbsenceMock.mockResolvedValue({ id: 1, status: 'APPROVED' })
 
     render(<ManagerDashboard />)
     await screen.findByText(/VACATION/)
 
-    const approveButtons = screen.getAllByRole('button', { name: /valider/i })
-    // [0] = mission, [1] = absence
-    await userEvent.click(approveButtons[1])
-
+    await userEvent.click(screen.getByRole('button', { name: /^valider$/i }))
     await waitFor(() =>
-      expect(approveAbsenceMock).toHaveBeenCalledWith(1, ''),
+      expect(approveAbsenceMock).toHaveBeenCalledWith(1, undefined),
     )
+  })
+})
+
+describe('ManagerDashboard — reporting tab', () => {
+  it('loads the report on tab change and lets the user pick a month', async () => {
+    primeHappyPath()
+    reportMock.mockResolvedValue({
+      month: '2026-04',
+      rows: [
+        {
+          user_id: 1, username: 'alice', sessions_count: 12,
+          worked_hours: 76.5, overtime_balance_hours: 1.2,
+          forgotten_sessions: 0, open_sessions: 0,
+          vacation_quota: 25, vacation_used: 0, vacation_remaining: 25,
+        },
+      ],
+    })
+    render(<ManagerDashboard />)
+    await screen.findByText(/temps réel/i)
+    await userEvent.click(screen.getByRole('button', { name: /reporting/i }))
+
+    await waitFor(() => expect(reportMock).toHaveBeenCalled())
+    expect(await screen.findByText(/alice/)).toBeInTheDocument()
+    expect(screen.getByText(/76\.50 h/)).toBeInTheDocument()
+    expect(screen.getByText(/\+1\.20 h/)).toBeInTheDocument()
   })
 })

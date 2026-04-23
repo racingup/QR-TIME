@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { Link, useNavigate } from 'react-router-dom'
 import { useAuth } from '../hooks/useAuth'
 
 export default function LoginPage() {
@@ -25,31 +25,51 @@ export default function LoginPage() {
   }
 
   return (
-    <form onSubmit={onSubmit} className="max-w-sm mx-auto mt-20 p-6 space-y-4 bg-white border rounded">
-      <h1 className="text-xl font-semibold">Connexion</h1>
-      <input
-        className="w-full border rounded p-2"
-        placeholder="Nom d'utilisateur"
-        value={username}
-        onChange={(e) => setUsername(e.target.value)}
-        autoFocus
-        required
-      />
-      <input
-        type="password"
-        className="w-full border rounded p-2"
-        placeholder="Mot de passe"
-        value={password}
-        onChange={(e) => setPassword(e.target.value)}
-        required
-      />
-      {error && <p role="alert" className="text-red-700 text-sm">{error}</p>}
-      <button
-        disabled={submitting}
-        className="w-full bg-blue-600 text-white py-2 rounded disabled:opacity-50"
-      >
-        {submitting ? 'Connexion…' : 'Se connecter'}
-      </button>
-    </form>
+    <>
+      <div className="app-bg" aria-hidden />
+      <div className="min-h-screen flex items-center justify-center px-4 safe-top safe-bottom">
+        <form onSubmit={onSubmit} className="glass-strong rounded-3xl p-6 w-full max-w-sm space-y-4">
+          <div className="text-center">
+            <img
+              src="/logo.png"
+              alt="qrtime.ch"
+              width="72" height="72"
+              className="mx-auto w-18 h-18 object-contain"
+              onError={(e) => { e.currentTarget.style.display = 'none' }}
+            />
+            <p className="text-xs uppercase tracking-widest text-slate-500 mt-3">qrtime.ch</p>
+            <h1 className="text-2xl font-semibold tracking-tight mt-1">Connexion</h1>
+          </div>
+          <input
+            className="glass-input w-full"
+            placeholder="Nom d'utilisateur"
+            value={username}
+            onChange={(e) => setUsername(e.target.value)}
+            autoFocus required
+          />
+          <input
+            type="password"
+            className="glass-input w-full"
+            placeholder="Mot de passe"
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+            required
+          />
+          {error && <p role="alert" className="text-rose-700 text-sm">{error}</p>}
+          <button
+            disabled={submitting}
+            className="pill pill-primary w-full justify-center disabled:opacity-50"
+          >
+            {submitting ? 'Connexion…' : 'Se connecter'}
+          </button>
+          <p className="text-xs text-center text-slate-500 pt-2">
+            En vous connectant, vous acceptez notre{' '}
+            <Link to="/privacy" className="underline text-blue-700">
+              politique de confidentialité
+            </Link>.
+          </p>
+        </form>
+      </div>
+    </>
   )
 }

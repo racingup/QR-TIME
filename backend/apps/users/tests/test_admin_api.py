@@ -31,6 +31,21 @@ class AdminPermissionsTests(APITestCase):
                     status.HTTP_403_FORBIDDEN,
                 )
 
+    def test_manager_blocked_from_admin_settings_routes(self):
+        # Sites / fixed slots / tolerance / holidays / users : superuser only.
+        self.client.force_authenticate(self.manager)
+        for url in (
+            reverse("admin-site-list"),
+            reverse("admin-fixed-slot-list"),
+            reverse("admin-user-list"),
+            reverse("admin-tolerance"),
+        ):
+            with self.subTest(url=url):
+                self.assertEqual(
+                    self.client.get(url).status_code,
+                    status.HTTP_403_FORBIDDEN,
+                )
+
     def test_unauth_blocked_from_admin_routes(self):
         for url in (
             reverse("admin-site-list"),
@@ -45,9 +60,12 @@ class AdminPermissionsTests(APITestCase):
 
 class SitesAdminTests(APITestCase):
     def setUp(self):
-        self.manager = UserProfile.objects.create_user(
-            username="boss", password="x", is_manager=True,
+        # Site/slot/tolerance settings : superuser only.
+        self.manager = UserProfile.objects.create_superuser(
+            username="boss", email="boss@example.com", password="x",
         )
+        self.manager.is_manager = True
+        self.manager.save(update_fields=["is_manager"])
         self.client.force_authenticate(self.manager)
 
     def test_create_site(self):
@@ -104,9 +122,12 @@ class SitesAdminTests(APITestCase):
 
 class FixedSlotsAdminTests(APITestCase):
     def setUp(self):
-        self.manager = UserProfile.objects.create_user(
-            username="boss", password="x", is_manager=True,
+        # Site/slot/tolerance settings : superuser only.
+        self.manager = UserProfile.objects.create_superuser(
+            username="boss", email="boss@example.com", password="x",
         )
+        self.manager.is_manager = True
+        self.manager.save(update_fields=["is_manager"])
         self.client.force_authenticate(self.manager)
 
     def test_create_and_list_fixed_slot(self):
@@ -120,9 +141,12 @@ class FixedSlotsAdminTests(APITestCase):
 
 class ToleranceAdminTests(APITestCase):
     def setUp(self):
-        self.manager = UserProfile.objects.create_user(
-            username="boss", password="x", is_manager=True,
+        # Site/slot/tolerance settings : superuser only.
+        self.manager = UserProfile.objects.create_superuser(
+            username="boss", email="boss@example.com", password="x",
         )
+        self.manager.is_manager = True
+        self.manager.save(update_fields=["is_manager"])
         self.client.force_authenticate(self.manager)
 
     def test_get_returns_singleton_with_defaults(self):
@@ -144,10 +168,21 @@ class ToleranceAdminTests(APITestCase):
 
 class UsersAdminTests(APITestCase):
     def setUp(self):
-        self.manager = UserProfile.objects.create_user(
+        # User CRUD is restricted to superusers ("big manager").
+        self.chief = UserProfile.objects.create_superuser(
+            username="chief", email="chief@example.com", password="x",
+        )
+        self.client.force_authenticate(self.chief)
+
+    def test_regular_manager_cannot_access_user_crud(self):
+        manager = UserProfile.objects.create_user(
             username="boss", password="x", is_manager=True,
         )
-        self.client.force_authenticate(self.manager)
+        self.client.force_authenticate(manager)
+        self.assertEqual(
+            self.client.get(reverse("admin-user-list")).status_code,
+            status.HTTP_403_FORBIDDEN,
+        )
 
     def test_create_user(self):
         resp = self.client.post(reverse("admin-user-list"), {

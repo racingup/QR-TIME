@@ -3,7 +3,14 @@ from __future__ import annotations
 
 from rest_framework import serializers
 
-from apps.users.models import Site, ToleranceConfig, UserProfile
+from apps.users.models import Site, SiteHoliday, ToleranceConfig, UserProfile
+
+
+class SiteHolidaySerializer(serializers.ModelSerializer):
+    class Meta:
+        model = SiteHoliday
+        fields = ["id", "site", "date", "name"]
+        read_only_fields = ["id"]
 
 
 class SiteSerializer(serializers.ModelSerializer):
@@ -33,9 +40,11 @@ class AdminUserSerializer(serializers.ModelSerializer):
         fields = [
             "id", "username", "email", "first_name", "last_name",
             "weekly_target_hours", "vacation_quota", "vacation_used",
-            "overtime_balance", "is_manager", "is_active", "password",
+            "overtime_balance", "is_manager", "is_mission_manager",
+            "is_active", "home_site", "password",
         ]
-        read_only_fields = ["id", "vacation_used", "overtime_balance"]
+        # username is editable (superuser can rename collaborators).
+        read_only_fields = ["id", "vacation_used", "overtime_balance", "is_superuser", "is_staff"]
 
     def create(self, validated_data):
         password = validated_data.pop("password", None) or UserProfile.objects.make_random_password()

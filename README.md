@@ -1,4 +1,4 @@
-# Timbreuse — Système de pointage QR + GPS
+# qrtime.ch — Système de pointage QR + GPS
 
 Application web de pointage par scan de QR code avec validation GPS.
 Stack : **Django 4.2 + DRF** (backend) · **React 18 + Tailwind** (frontend) · **PostgreSQL** · **Celery + Redis**.

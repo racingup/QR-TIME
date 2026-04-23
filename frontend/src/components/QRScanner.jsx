@@ -2,6 +2,23 @@ import { useEffect, useRef } from 'react'
 import { Html5Qrcode } from 'html5-qrcode'
 
 /**
+ * Decode a QR code from a static image file (photo from gallery or file picker).
+ * Returns the decoded string. Throws if no QR is detected.
+ */
+export async function decodeQrFromFile(file) {
+  const tempEl = document.createElement('div')
+  tempEl.id = `qr-file-tmp-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
+  tempEl.style.display = 'none'
+  document.body.appendChild(tempEl)
+  const scanner = new Html5Qrcode(tempEl.id, /* verbose */ false)
+  try {
+    return await scanner.scanFile(file, /* showImage */ false)
+  } finally {
+    try { document.body.removeChild(tempEl) } catch { /* element gone */ }
+  }
+}
+
+/**
  * Mounts an html5-qrcode camera scanner. Calls onDecode(text) once a code
  * is recognised. The parent should unmount this component to stop scanning.
  */
