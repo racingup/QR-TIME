@@ -122,7 +122,8 @@ if not DEBUG:
     SECURE_REFERRER_POLICY = "same-origin"
     X_FRAME_OPTIONS = "DENY"
     CSRF_TRUSTED_ORIGINS = [
-        o for o in os.environ.get("CSRF_TRUSTED_ORIGINS", "").split(",") if o.strip()
+        o if o.startswith("http") else f"https://{o}"
+        for o in os.environ.get("CSRF_TRUSTED_ORIGINS", "").split(",") if o.strip()
     ]
 
 # Django admin URL prefix — override with DJANGO_ADMIN_PATH env var on the VPS
@@ -180,7 +181,8 @@ SIMPLE_JWT = {
 }
 
 CORS_ALLOWED_ORIGINS = [
-    o.strip() for o in os.environ.get("CORS_ALLOWED_ORIGINS", "http://localhost:5173").split(",") if o.strip()
+    o.strip() if o.strip().startswith("http") else f"https://{o.strip()}"
+    for o in os.environ.get("CORS_ALLOWED_ORIGINS", "http://localhost:5173").split(",") if o.strip()
 ]
 
 CELERY_BROKER_URL = os.environ.get("REDIS_URL", "redis://localhost:6379/0")
