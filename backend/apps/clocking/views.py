@@ -226,7 +226,13 @@ class DayDetailView(APIView):
         sessions = ClockSession.objects.filter(
             user_id=user_id, clock_in__date=target_date,
         ).select_related("site", "mission").order_by("clock_in")
-        total_min = sum(s.duration_minutes for s in sessions if s.clock_out_rounded)
+        clocked_min = sum(s.duration_minutes for s in sessions if s.clock_out_rounded)
+        # Trajet pro compensable (Art. 13 al. 3 OLT 1) — calculé au niveau
+        # du jour pour ce user, à partir des sessions liées à des missions
+        # FIELD approuvées. Voir `services/missions_travel.py`.
+        from services.missions_travel import daily_travel_compensable_minutes
+        travel_compensable = daily_travel_compensable_minutes(user, target_date)
+        total_min = clocked_min + travel_compensable
 
         missions = Mission.objects.filter(
             user_id=user_id,
@@ -255,6 +261,8 @@ class DayDetailView(APIView):
             "username": user.get_username(),
             "sessions": ClockSessionSerializer(sessions, many=True).data,
             "total_minutes": total_min,
+            "clocked_minutes": clocked_min,
+            "travel_compensable_minutes": travel_compensable,
             "open_session": any(s.clock_out is None for s in sessions),
             "missions_active": MissionSerializer(missions, many=True).data,
             "absences_active": AbsenceRequestSerializer(absences, many=True).data,
@@ -375,6 +383,19 @@ class ClockSessionUpdateView(APIView):
                 {"error": "FORBIDDEN_SELF_OR_OUT_OF_SCOPE"},
                 status=status.HTTP_403_FORBIDDEN,
             )
+        # Garde-fou : `clock_in` est NOT NULL côté DB. Refuser de l'effacer
+        # explicitement plutôt que de planter en IntegrityError 500.
+        # Pour supprimer la session, utiliser DELETE /api/clock/{id}/delete/.
+        if "clock_in" in request.data and not request.data.get("clock_in"):
+            return Response(
+                {
+                    "error": "CLOCK_IN_REQUIRED",
+                    "hint": "Pour supprimer une session, utiliser "
+                            "DELETE /api/clock/{id}/delete/ — pas un PATCH "
+                            "qui vide les champs.",
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
         for key, value in request.data.items():
             if key not in self.ALLOWED_FIELDS:
                 continue
@@ -383,6 +404,55 @@ class ClockSessionUpdateView(APIView):
             setattr(session, key, value)
         session.save()
         return Response(ClockSessionSerializer(session).data)
+
+
+class ClockSessionDeleteView(APIView):
+    """DELETE /api/clock/{id}/delete/ — supprime un pointage.
+
+    Réservé aux managers / mission_managers / superusers, avec les règles
+    standards :
+      - anti-self : un manager ne supprime pas ses propres pointages
+        (sauf superuser, qui peut tout)
+      - hiérarchie : seul le superuser peut supprimer un pointage de superuser
+      - cantonnement : un manager ne supprime que les pointages des users
+        dans son scope (`manager_user_scope`)
+
+    L'opération est tracée dans `AdminAuditLog` avec un snapshot de la session
+    supprimée (LPD : preuve qu'une action destructrice a bien eu lieu et par qui).
+    """
+
+    permission_classes = [IsManager]
+
+    def delete(self, request: Request, pk: int) -> Response:
+        from apps.users.models import AdminAuditLog
+        from services.audit import can_manager_act_on, log_admin_action
+        session = generics.get_object_or_404(ClockSession, pk=pk)
+        if not can_manager_act_on(request.user, session.user_id):
+            return Response(
+                {"error": "FORBIDDEN_SELF_OR_OUT_OF_SCOPE"},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+        # Snapshot AVANT delete pour la trace audit (after-deletion les FKs
+        # sont cassées et on perd toute info utile).
+        snapshot = {
+            "session_type": session.session_type,
+            "clock_in": session.clock_in.isoformat() if session.clock_in else None,
+            "clock_out": session.clock_out.isoformat() if session.clock_out else None,
+            "site_id": session.site_id,
+            "mission_id": session.mission_id,
+            "is_forgotten": session.is_forgotten,
+        }
+        target_user = session.user
+        session_id = session.id
+        session.delete()
+        log_admin_action(
+            actor=request.user, action=AdminAuditLog.Action.SESSION_DELETE,
+            target_user=target_user,
+            object_type="ClockSession", object_id=session_id,
+            details=snapshot,
+            request=request,
+        )
+        return Response(status=status.HTTP_204_NO_CONTENT)
 
 
 class HistoryView(APIView):
@@ -578,17 +648,25 @@ class UserMonthlyDetailView(APIView):
             ):
                 holidays[h.date.isoformat()] = h.name
 
+        from services.missions_travel import daily_travel_compensable_minutes
+
         days = []
         cur = start
         while cur <= end_inclusive:
             key = cur.isoformat()
             day_sessions = by_day.get(key, [])
-            worked_min = sum(s["duration_minutes"] for s in day_sessions if s.get("clock_out_rounded"))
+            clocked_min = sum(
+                s["duration_minutes"] for s in day_sessions if s.get("clock_out_rounded")
+            )
+            travel_min = daily_travel_compensable_minutes(user, cur)
+            worked_min = clocked_min + travel_min
             days.append({
                 "date": key,
                 "weekday": cur.strftime("%A"),
                 "sessions": day_sessions,
                 "worked_minutes": worked_min,
+                "clocked_minutes": clocked_min,
+                "travel_compensable_minutes": travel_min,
                 "absence": absence_by_day.get(key),
                 "holiday": holidays.get(key),
             })

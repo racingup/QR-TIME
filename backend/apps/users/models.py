@@ -41,10 +41,36 @@ class UserProfile(AbstractUser):
         help_text="Site de rattachement principal du collaborateur.",
     )
 
+    # ── Domicile (sélectionné sur carte par l'admin) ─────────────────────
+    # Sert au calcul du temps de trajet supplémentaire en mission (Art. 13
+    # OLT 1) : trajet domicile → mission, MOINS le trajet standard
+    # domicile → home_site (qui aurait été fait de toute façon).
+    home_lat = models.DecimalField(
+        max_digits=9, decimal_places=6, null=True, blank=True,
+        help_text="Latitude du domicile, sélectionnée sur carte par l'admin.",
+    )
+    home_lon = models.DecimalField(
+        max_digits=9, decimal_places=6, null=True, blank=True,
+        help_text="Longitude du domicile, sélectionnée sur carte par l'admin.",
+    )
+    standard_commute_minutes = models.PositiveIntegerField(
+        null=True, blank=True,
+        help_text=(
+            "Trajet standard domicile → site de rattachement, ALLER SIMPLE en "
+            "minutes. Recalculé automatiquement quand l'adresse domicile ou le "
+            "site changent ; éditable manuellement par l'admin."
+        ),
+    )
+
     @property
     def daily_target_hours(self) -> Decimal:
         """Heures théoriques par jour ouvré (semaine de 5 jours)."""
         return (self.weekly_target_hours or Decimal("0")) / Decimal("5")
+
+    @property
+    def has_home_address(self) -> bool:
+        """True si l'admin a renseigné les coordonnées du domicile."""
+        return self.home_lat is not None and self.home_lon is not None
 
 
 class Site(models.Model):
@@ -92,6 +118,88 @@ class ToleranceConfig(models.Model):
 
     @classmethod
     def load(cls) -> "ToleranceConfig":
+        obj, _ = cls.objects.get_or_create(pk=1)
+        return obj
+
+
+class CompanySettings(models.Model):
+    """Identification + branding de l'entreprise utilisatrice (singleton).
+
+    Pourquoi un singleton plutôt qu'un modèle multi-tenant : qrtime.ch est
+    déployé en *single-tenant* (une instance par client). Un seul jeu de
+    settings global suffit ; pas besoin d'un `tenant_id` partout.
+
+    Les champs identification servent à interpoler la politique de
+    confidentialité (LPD : nom du responsable, contact DPO, adresse, etc.).
+    Les champs branding (logo, couleurs) sont injectés au boot du frontend
+    via un endpoint public-auth.
+
+    Logo stocké comme **data URL base64** dans un TextField :
+    - Pas besoin de configurer MEDIA_ROOT / volume Docker → déploiement plus
+      simple, pas de gestion de droits / purge LPD séparée
+    - Backup couvert automatiquement par le pg_dump quotidien (`ops/backup.sh`)
+    - Limite raisonnable : ~150 KB (côté frontend on redimensionne à 256 px max
+      avant envoi → ~10-20 KB en base64). Plus efficace serait OBVIOUSLY un
+      blob storage, mais overkill pour un logo qui ne change presque jamais.
+    """
+
+    # ── Identification (interpolée dans la politique de confidentialité) ──
+    name = models.CharField(
+        max_length=200, blank=True,
+        help_text="Raison sociale (ex : Acme SA).",
+    )
+    legal_form = models.CharField(
+        max_length=20, blank=True,
+        help_text="Forme juridique (SA, Sàrl, AG, GmbH, association, …).",
+    )
+    address_line = models.CharField(max_length=200, blank=True)
+    postal_code = models.CharField(max_length=10, blank=True)
+    city = models.CharField(max_length=100, blank=True)
+    country = models.CharField(max_length=80, blank=True, default="Suisse")
+    dpo_contact_email = models.EmailField(
+        blank=True,
+        help_text="Email de contact pour les questions liées à la protection "
+                  "des données (Art. 14 LPD — contact du responsable).",
+    )
+    dpo_contact_phone = models.CharField(max_length=40, blank=True)
+    privacy_policy_extra = models.TextField(
+        blank=True,
+        help_text="Texte libre ajouté en bas de la politique de confidentialité "
+                  "(ex : mentions sectorielles, sous-traitants spécifiques).",
+    )
+
+    # ── Branding (logo + couleurs) ────────────────────────────────────────
+    logo_data_url = models.TextField(
+        blank=True,
+        help_text="Logo en data URL base64 (data:image/png;base64,…). "
+                  "Limite recommandée : 150 KB (256 px max).",
+    )
+    primary_color = models.CharField(
+        max_length=9, blank=True, default="#1e3a5f",
+        help_text="Couleur primaire (hex, ex : #1e3a5f). Injectée comme "
+                  "var CSS --brand-primary au boot frontend.",
+    )
+    secondary_color = models.CharField(
+        max_length=9, blank=True, default="#10b981",
+        help_text="Couleur secondaire (accents).",
+    )
+
+    updated_at = models.DateTimeField(auto_now=True)
+    updated_by = models.ForeignKey(
+        "users.UserProfile", on_delete=models.SET_NULL, null=True, blank=True,
+        related_name="+",
+    )
+
+    class Meta:
+        verbose_name = "Paramètres entreprise"
+        verbose_name_plural = "Paramètres entreprise"
+
+    def save(self, *args, **kwargs):
+        self.pk = 1
+        super().save(*args, **kwargs)
+
+    @classmethod
+    def load(cls) -> "CompanySettings":
         obj, _ = cls.objects.get_or_create(pk=1)
         return obj
 
@@ -154,6 +262,10 @@ class AdminAuditLog(models.Model):
         USER_DELETE = "USER_DELETE", "Suppression / anonymisation utilisateur"
         ROLE_CHANGE = "ROLE_CHANGE", "Changement de rôle"
         SESSION_EDIT = "SESSION_EDIT", "Édition d'un pointage"
+        SESSION_DELETE = "SESSION_DELETE", "Suppression d'un pointage"
+        DELETION_REQUEST_CREATED = "DELETION_REQUEST_CREATED", "Demande de suppression compte (employé)"
+        DELETION_REQUEST_APPROVED = "DELETION_REQUEST_APPROVED", "Demande approuvée (anonymisation effectuée)"
+        DELETION_REQUEST_REJECTED = "DELETION_REQUEST_REJECTED", "Demande refusée"
         ABSENCE_DECISION = "ABSENCE_DECISION", "Décision sur une absence"
         MISSION_DECISION = "MISSION_DECISION", "Décision sur une mission"
         DATA_EXPORT = "DATA_EXPORT", "Export de données utilisateur"
@@ -182,6 +294,58 @@ class AdminAuditLog(models.Model):
         indexes = [
             models.Index(fields=["target_user", "-created_at"]),
             models.Index(fields=["action", "-created_at"]),
+        ]
+
+
+class DataDeletionRequest(models.Model):
+    """Demande de suppression du compte par un collaborateur (LPD Art. 32 al. 2).
+
+    Important : on N'ANONYMISE PAS directement à la demande, car la suppression
+    d'un compte salarié actif constitue de facto une rupture de la relation de
+    travail. Le workflow est :
+
+      1. L'employé soumet la demande (status = PENDING) via /api/me/deletion-request/
+      2. L'admin / RH la traite via l'espace admin
+      3. Si APPROVED → exécution de `anonymize_user()` + status = FULFILLED
+      4. Si REJECTED → trace avec motif (ex: "départ en cours, RH gère via SIRH")
+
+    Le collaborateur ne peut pas avoir 2 demandes PENDING simultanément.
+    """
+
+    class Status(models.TextChoices):
+        PENDING = "PENDING", "En attente"
+        APPROVED = "APPROVED", "Approuvée et anonymisation effectuée"
+        REJECTED = "REJECTED", "Refusée"
+
+    user = models.ForeignKey(
+        "users.UserProfile", on_delete=models.CASCADE,
+        related_name="deletion_requests",
+    )
+    user_reason = models.TextField(
+        blank=True,
+        help_text="Motif libre laissé par le collaborateur (optionnel).",
+    )
+    status = models.CharField(
+        max_length=10, choices=Status.choices, default=Status.PENDING,
+    )
+    decided_by = models.ForeignKey(
+        "users.UserProfile", on_delete=models.SET_NULL,
+        null=True, blank=True, related_name="decided_deletion_requests",
+    )
+    admin_comment = models.TextField(blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    decided_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        ordering = ["-created_at"]
+        constraints = [
+            # Garde-fou métier : 1 seule demande PENDING active à la fois.
+            # Permet plusieurs demandes historiques (rejected/fulfilled).
+            models.UniqueConstraint(
+                fields=["user"],
+                condition=models.Q(status="PENDING"),
+                name="unique_pending_deletion_request_per_user",
+            ),
         ]
 
 

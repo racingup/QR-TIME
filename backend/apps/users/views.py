@@ -5,7 +5,7 @@ from datetime import timedelta
 from decimal import Decimal
 
 from django.utils import timezone
-from rest_framework import status, viewsets
+from rest_framework import generics, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
@@ -14,7 +14,9 @@ from rest_framework.views import APIView
 from apps.clocking.models import ClockSession
 from apps.users.models import (
     AdminAuditLog,
+    CompanySettings,
     ConsentLog,
+    DataDeletionRequest,
     Site,
     SiteHoliday,
     SiteQRAudit,
@@ -24,10 +26,13 @@ from apps.users.models import (
 from apps.users.permissions import IsManager, IsSuperUser
 from apps.users.serializers import (
     AdminUserSerializer,
+    CompanySettingsSerializer,
+    PublicBrandingSerializer,
     SiteHolidaySerializer,
     SiteSerializer,
     ToleranceConfigSerializer,
 )
+from rest_framework.permissions import AllowAny
 
 
 class SiteViewSet(viewsets.ModelViewSet):
@@ -112,6 +117,62 @@ class ToleranceConfigView(APIView):
         ser.is_valid(raise_exception=True)
         ser.save()
         return Response(ser.data)
+
+
+class CompanySettingsAdminView(APIView):
+    """GET / PUT /api/admin/company-settings/ — superuser only.
+
+    Singleton (CompanySettings.load()). Le PUT accepte un payload partiel.
+    """
+
+    permission_classes = [IsSuperUser]
+
+    def get(self, request):
+        return Response(CompanySettingsSerializer(CompanySettings.load()).data)
+
+    def put(self, request):
+        from services.audit import log_admin_action
+        config = CompanySettings.load()
+        ser = CompanySettingsSerializer(config, data=request.data, partial=True)
+        ser.is_valid(raise_exception=True)
+        config = ser.save(updated_by=request.user)
+        log_admin_action(
+            actor=request.user,
+            action=AdminAuditLog.Action.USER_UPDATE,  # pas d'action dédiée — réutilisé
+            object_type="CompanySettings",
+            details={"fields_set": list(ser.validated_data.keys())},
+            request=request,
+        )
+        return Response(CompanySettingsSerializer(config).data)
+
+
+class MeCompanyView(APIView):
+    """GET /api/me/company/ — payload entreprise complet pour user authentifié.
+
+    Sert au boot de l'app et à interpoler la politique de confidentialité.
+    Tous les champs sont en lecture seule pour les non-admins.
+    """
+
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        return Response(CompanySettingsSerializer(CompanySettings.load()).data)
+
+
+class PublicBrandingView(APIView):
+    """GET /api/branding/ — payload visuel minimal, anonyme.
+
+    Permet à la page de login d'afficher le logo et la couleur primaire
+    AVANT que l'utilisateur ne s'authentifie. N'expose AUCUNE info sensible
+    (email DPO, adresse, etc.) — juste ce qu'on voit déjà sur l'écran de
+    login en l'absence d'auth.
+    """
+
+    permission_classes = [AllowAny]
+    authentication_classes: list = []  # pas de check JWT, request anonyme
+
+    def get(self, request):
+        return Response(PublicBrandingSerializer(CompanySettings.load()).data)
 
 
 PRIVACY_POLICY_VERSION = "2026-04-01"
@@ -232,42 +293,93 @@ class MeExportView(APIView):
         })
 
 
-class MeDeleteAccountView(APIView):
-    """POST /api/me/delete-account/ — droit à la destruction (Art. 32 al. 2 LPD).
+class MeDeletionRequestView(APIView):
+    """Workflow LPD Art. 32 al. 2 — *demande* de suppression de compte.
 
-    Pseudonymise le compte (les pointages restent à des fins comptables et
-    légales — Art. 73 OLT 1 / Art. 958f CO — rattachés à un compte anonyme
-    `deleted_N` incrémental ; l'id interne est préservé pour conserver
-    l'intégrité des rapports historiques).
-    Confirmation explicite requise via {"confirm": "DELETE"}.
+    Avant : la suppression était immédiate, ce qui équivaut de facto à une
+    rupture du contrat de travail. C'était dangereux pour le collaborateur
+    (perte d'accès) ET pour l'employeur (rupture sans process RH).
+
+    Maintenant : on crée une `DataDeletionRequest` PENDING. L'admin/RH
+    valide hors-bande (typiquement après le solde de tout compte) puis
+    approuve depuis l'espace admin → ce moment-là seulement déclenche
+    `anonymize_user()`.
+
+    GET  → retourne la demande active (PENDING) du user, ou null
+    POST → crée une nouvelle demande PENDING (refus si une autre est déjà active)
     """
 
     permission_classes = [IsAuthenticated]
 
-    def post(self, request):
-        from services.audit import anonymize_user, log_admin_action
+    def get(self, request):
+        active = (
+            DataDeletionRequest.objects
+            .filter(user=request.user, status=DataDeletionRequest.Status.PENDING)
+            .first()
+        )
+        if not active:
+            return Response({"pending": None})
+        return Response({"pending": _serialize_deletion_request(active)})
 
-        if request.data.get("confirm") != "DELETE":
-            return Response(
-                {"error": "CONFIRMATION_REQUIRED",
-                 "hint": 'POST {"confirm": "DELETE"} to proceed'},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
+    def post(self, request):
+        from services.audit import log_admin_action
         if request.user.is_superuser:
             return Response(
                 {"error": "SUPERUSER_CANNOT_SELF_DELETE",
                  "hint": "Demandez à un autre superuser de supprimer ce compte."},
                 status=status.HTTP_403_FORBIDDEN,
             )
-        target = request.user
+        if request.data.get("confirm") != "DELETE":
+            return Response(
+                {"error": "CONFIRMATION_REQUIRED",
+                 "hint": 'POST {"confirm": "DELETE", "reason": "..."}'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        # Garde-fou : pas de doublon PENDING (la contrainte BDD le bloquerait
+        # mais on renvoie un message clair plutôt qu'une 500).
+        existing = DataDeletionRequest.objects.filter(
+            user=request.user, status=DataDeletionRequest.Status.PENDING,
+        ).first()
+        if existing:
+            return Response(
+                {"error": "ALREADY_PENDING",
+                 "hint": "Une demande est déjà en cours de traitement.",
+                 "request": _serialize_deletion_request(existing)},
+                status=status.HTTP_409_CONFLICT,
+            )
+        req = DataDeletionRequest.objects.create(
+            user=request.user,
+            user_reason=str(request.data.get("reason") or "")[:1000],
+        )
         log_admin_action(
-            actor=target, action=AdminAuditLog.Action.USER_DELETE,
-            target_user=target, object_type="self_anonymization",
-            details={"reason": "user_request_lpd_art32_al2"},
+            actor=request.user, action=AdminAuditLog.Action.DELETION_REQUEST_CREATED,
+            target_user=request.user, object_type="DataDeletionRequest",
+            object_id=req.id,
+            details={"reason": req.user_reason},
             request=request,
         )
-        anonymize_user(target)
-        return Response({"ok": True, "anonymized": True})
+        return Response(
+            {"ok": True, "pending": _serialize_deletion_request(req)},
+            status=status.HTTP_201_CREATED,
+        )
+
+
+def _serialize_deletion_request(req) -> dict:
+    """Sérialisation interne — partagée entre vues user et admin."""
+    return {
+        "id": req.id,
+        "user_id": req.user_id,
+        "username": req.user.get_username() if req.user else None,
+        "user_reason": req.user_reason,
+        "status": req.status,
+        "admin_comment": req.admin_comment,
+        "decided_by_id": req.decided_by_id,
+        "decided_by_username": (
+            req.decided_by.get_username() if req.decided_by else None
+        ),
+        "created_at": req.created_at.isoformat(),
+        "decided_at": req.decided_at.isoformat() if req.decided_at else None,
+    }
 
 
 class MeHolidaysView(APIView):
@@ -420,7 +532,27 @@ class AdminUserViewSet(viewsets.ModelViewSet):
     def perform_update(self, serializer):
         from services.audit import log_admin_action
         prev_is_manager = serializer.instance.is_manager
+        # Snapshot AVANT save : on a besoin des anciennes valeurs pour
+        # détecter un changement d'adresse / de site et déclencher le
+        # recalcul auto du trajet standard.
+        prev_lat = serializer.instance.home_lat
+        prev_lon = serializer.instance.home_lon
+        prev_site_id = serializer.instance.home_site_id
+        # Si l'admin a explicitement saisi `standard_commute_minutes` dans
+        # cette requête, on respecte sa valeur (override manuel) et on
+        # NE déclenche PAS le recalcul auto pour cette save.
+        admin_override = "standard_commute_minutes" in self.request.data
+
         instance = serializer.save()
+
+        address_or_site_changed = (
+            instance.home_lat != prev_lat
+            or instance.home_lon != prev_lon
+            or instance.home_site_id != prev_site_id
+        )
+        if address_or_site_changed and not admin_override:
+            self._recompute_commute(instance)
+
         action = (
             AdminAuditLog.Action.ROLE_CHANGE
             if instance.is_manager != prev_is_manager
@@ -433,6 +565,16 @@ class AdminUserViewSet(viewsets.ModelViewSet):
             request=self.request,
         )
 
+    @staticmethod
+    def _recompute_commute(user) -> None:
+        """Calcule le trajet standard via ORS, sauvegarde si valeur trouvée.
+        Fail-open : si ORS rate, on ne touche pas l'ancienne valeur."""
+        from services.routing import compute_commute_minutes
+        minutes = compute_commute_minutes(user)
+        if minutes is not None:
+            user.standard_commute_minutes = minutes
+            user.save(update_fields=["standard_commute_minutes"])
+
     def perform_destroy(self, instance):
         # Anonymisation au lieu de delete brut.
         from services.audit import anonymize_user, log_admin_action
@@ -442,3 +584,100 @@ class AdminUserViewSet(viewsets.ModelViewSet):
             request=self.request,
         )
         anonymize_user(instance)
+
+
+class AdminDeletionRequestListView(APIView):
+    """GET /api/admin/deletion-requests/[?status=PENDING] — superuser uniquement.
+
+    Vue d'inbox RH : toutes les demandes de suppression de compte soumises
+    par les collaborateurs. Filtre `status` optionnel (par défaut : tout).
+    """
+
+    permission_classes = [IsSuperUser]
+
+    def get(self, request):
+        qs = DataDeletionRequest.objects.select_related("user", "decided_by")
+        status_filter = request.query_params.get("status")
+        if status_filter:
+            qs = qs.filter(status=status_filter)
+        rows = qs[:200]
+        return Response({
+            "count": len(rows),
+            "results": [_serialize_deletion_request(r) for r in rows],
+        })
+
+
+class AdminDeletionRequestDecisionView(APIView):
+    """PATCH /api/admin/deletion-requests/{id}/ — superuser approuve / refuse.
+
+    Body : `{"decision": "approve"|"reject", "comment": "..."}`
+
+    - approve → exécute `anonymize_user()` sur le compte du collaborateur,
+      passe la demande en APPROVED, écrit l'audit log.
+    - reject → passe la demande en REJECTED avec le commentaire admin
+      (typiquement : "départ en cours, RH gère via SIRH" ou autre).
+
+    Une demande ne peut être traitée qu'une fois (status doit être PENDING).
+    """
+
+    permission_classes = [IsSuperUser]
+
+    def patch(self, request, pk: int):
+        from services.audit import anonymize_user, log_admin_action
+
+        req = generics.get_object_or_404(DataDeletionRequest, pk=pk)
+        if req.status != DataDeletionRequest.Status.PENDING:
+            return Response(
+                {"error": "ALREADY_DECIDED", "current_status": req.status},
+                status=status.HTTP_409_CONFLICT,
+            )
+        decision = (request.data.get("decision") or "").lower()
+        comment = str(request.data.get("comment") or "")[:1000]
+        if decision not in ("approve", "reject"):
+            return Response(
+                {"error": "INVALID_DECISION",
+                 "hint": "Expected decision='approve' or 'reject'."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        # Garde-fou : on ne s'auto-approuve pas. Un superuser peut traiter
+        # toutes les demandes SAUF la sienne (ce qui de toute façon ne peut
+        # pas exister puisqu'on bloque la création par un superuser).
+        if req.user_id == request.user.id:
+            return Response(
+                {"error": "CANNOT_SELF_DECIDE"},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+
+        target = req.user
+        if decision == "approve":
+            req.status = DataDeletionRequest.Status.APPROVED
+            req.admin_comment = comment
+            req.decided_by = request.user
+            req.decided_at = timezone.now()
+            req.save()
+            log_admin_action(
+                actor=request.user,
+                action=AdminAuditLog.Action.DELETION_REQUEST_APPROVED,
+                target_user=target, object_type="DataDeletionRequest",
+                object_id=req.id, details={"comment": comment},
+                request=request,
+            )
+            # Anonymisation maintenant — pas avant (ne pas écraser FK
+            # `decided_by` ou casser les contraintes).
+            anonymize_user(target)
+        else:  # reject
+            req.status = DataDeletionRequest.Status.REJECTED
+            req.admin_comment = comment
+            req.decided_by = request.user
+            req.decided_at = timezone.now()
+            req.save()
+            log_admin_action(
+                actor=request.user,
+                action=AdminAuditLog.Action.DELETION_REQUEST_REJECTED,
+                target_user=target, object_type="DataDeletionRequest",
+                object_id=req.id, details={"comment": comment},
+                request=request,
+            )
+
+        req.refresh_from_db()
+        return Response(_serialize_deletion_request(req))

@@ -7,8 +7,9 @@ from rest_framework_simplejwt.views import (
 
 from apps.users.throttles import LoginIPThrottle, LoginUserThrottle
 from apps.users.views import (
+    MeCompanyView,
     MeConsentView,
-    MeDeleteAccountView,
+    MeDeletionRequestView,
     MeExportView,
     MeHolidaysView,
     MeSummaryView,
@@ -36,5 +37,10 @@ me_urlpatterns = [
     path("holidays/", MeHolidaysView.as_view(), name="me-holidays"),
     path("consent/", MeConsentView.as_view(), name="me-consent"),
     path("export/", MeExportView.as_view(), name="me-export"),
-    path("delete-account/", MeDeleteAccountView.as_view(), name="me-delete"),
+    # Workflow LPD : l'employé soumet une *demande* de suppression. L'ancienne
+    # route /delete-account/ est conservée comme alias pour les clients déjà
+    # déployés mais pointe vers la nouvelle vue (création de demande).
+    path("deletion-request/", MeDeletionRequestView.as_view(), name="me-deletion-request"),
+    path("delete-account/", MeDeletionRequestView.as_view(), name="me-delete"),
+    path("company/", MeCompanyView.as_view(), name="me-company"),
 ]

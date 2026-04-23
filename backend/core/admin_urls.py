@@ -5,7 +5,10 @@ from rest_framework.routers import DefaultRouter
 from apps.clocking.views import FixedTimeSlotViewSet
 from apps.users.views import (
     AdminAuditLogView,
+    AdminDeletionRequestDecisionView,
+    AdminDeletionRequestListView,
     AdminUserViewSet,
+    CompanySettingsAdminView,
     SiteHolidayViewSet,
     SiteViewSet,
     ToleranceConfigView,
@@ -20,5 +23,17 @@ router.register(r"users", AdminUserViewSet, basename="admin-user")
 urlpatterns = [
     path("", include(router.urls)),
     path("tolerance/", ToleranceConfigView.as_view(), name="admin-tolerance"),
+    path(
+        "company-settings/",
+        CompanySettingsAdminView.as_view(), name="admin-company-settings",
+    ),
     path("audit/", AdminAuditLogView.as_view(), name="admin-audit"),
+    path(
+        "deletion-requests/",
+        AdminDeletionRequestListView.as_view(), name="admin-deletion-requests",
+    ),
+    path(
+        "deletion-requests/<int:pk>/",
+        AdminDeletionRequestDecisionView.as_view(), name="admin-deletion-request-decide",
+    ),
 ]

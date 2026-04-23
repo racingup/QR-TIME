@@ -46,6 +46,25 @@ class Mission(models.Model):
                   "(contexte, motif, instructions spéciales).",
     )
     manager_comment = models.TextField(blank=True)
+
+    # ── Trajet professionnel (Art. 13 al. 3 OLT 1) ─────────────────────
+    # Calculés au moment de l'approbation. travel_minutes_actual est le
+    # trajet aller domicile → mission (sans ×2). compensable est le temps
+    # de trajet A/R *crédité* au collaborateur, après déduction du trajet
+    # standard A/R domicile → site de rattachement.
+    # Tous deux figés à l'approbation pour que le calcul soit reproductible.
+    travel_minutes_actual = models.PositiveIntegerField(
+        null=True, blank=True,
+        help_text="Trajet aller domicile → mission, en minutes (snapshot à l'approbation).",
+    )
+    travel_minutes_compensable = models.PositiveIntegerField(
+        null=True, blank=True,
+        help_text=(
+            "Temps de trajet A/R compensé : max(0, (actual − standard_commute) × 2). "
+            "Ajouté au temps de mission pour le calcul des heures."
+        ),
+    )
+
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -58,7 +77,28 @@ class Mission(models.Model):
         self.manager_comment = comment
         if not self.qr_token:
             self.qr_token = secrets.token_urlsafe(32)
+        # Snapshot du temps de trajet professionnel (Art. 13 al. 3 OLT 1).
+        # Calculé UNIQUEMENT pour les missions FIELD avec coordonnées GPS —
+        # le télétravail (REMOTE) n'implique aucun déplacement.
+        if self.mission_type == self.Type.FIELD:
+            self._snapshot_travel_minutes()
         self.save()
+
+    def _snapshot_travel_minutes(self) -> None:
+        """Calcule et stocke le trajet aller + le compensable A/R.
+        Fail-open : si le routing échoue, les champs restent à None et la
+        mission s'approuve quand même (l'admin peut éditer ces minutes plus
+        tard à la main si besoin)."""
+        from services.routing import (
+            compensable_round_trip_minutes,
+            compute_mission_travel_minutes,
+        )
+        actual = compute_mission_travel_minutes(self.user, self)
+        self.travel_minutes_actual = actual
+        self.travel_minutes_compensable = compensable_round_trip_minutes(
+            actual_one_way=actual,
+            standard_one_way=self.user.standard_commute_minutes,
+        )
 
     def reject(self, manager, comment: str = "") -> None:
         self.status = self.Status.REJECTED

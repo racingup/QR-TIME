@@ -39,6 +39,8 @@ services:
       DATABASE_URL: postgres://timbreuse:timbreuse@db:5432/timbreuse
       REDIS_URL: redis://redis:6379/0
       CORS_ALLOWED_ORIGINS: "http://localhost:3000,http://localhost:8000"
+      # Routing : forwardé depuis le shell (`export ORS_API_KEY=…`).
+      ORS_API_KEY: ${ORS_API_KEY:-}
     ports:
       - "${BACKEND_HOST_PORT:-8000}:8000"
     depends_on:

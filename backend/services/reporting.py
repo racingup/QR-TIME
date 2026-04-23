@@ -15,7 +15,15 @@ from reportlab.platypus import Paragraph, SimpleDocTemplate, Spacer, Table, Tabl
 
 
 def build_monthly_rows(users, start: date_type, end: date_type) -> list[dict]:
-    """Return a list of per-user dicts for the given inclusive [start, end] range."""
+    """Return a list of per-user dicts for the given inclusive [start, end] range.
+
+    `worked_minutes` inclut le trajet pro compensable (Art. 13 al. 3 OLT 1)
+    des missions FIELD ayant des sessions sur la période. Le détail brut
+    (pointage seul) est exposé dans `clocked_minutes` et le trajet dans
+    `travel_compensable_minutes` pour la transparence du rapport.
+    """
+    from services.missions_travel import period_travel_compensable_minutes
+
     rows = []
     for user in users:
         sessions = user.sessions.filter(
@@ -23,7 +31,9 @@ def build_monthly_rows(users, start: date_type, end: date_type) -> list[dict]:
             clock_in__date__lte=end,
             clock_out_rounded__isnull=False,
         )
-        worked_min = sum(s.duration_minutes for s in sessions)
+        clocked_min = sum(s.duration_minutes for s in sessions)
+        travel_min = period_travel_compensable_minutes(user, start, end)
+        worked_min = clocked_min + travel_min
         open_count = user.sessions.filter(
             clock_in__date__gte=start,
             clock_in__date__lte=end,
@@ -40,6 +50,8 @@ def build_monthly_rows(users, start: date_type, end: date_type) -> list[dict]:
             "username": user.get_username(),
             "worked_minutes": worked_min,
             "worked_hours": round(worked_min / 60, 2),
+            "clocked_minutes": clocked_min,
+            "travel_compensable_minutes": travel_min,
             "sessions_count": sessions.count(),
             "open_sessions": open_count,
             "forgotten_sessions": forgotten,

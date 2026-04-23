@@ -80,17 +80,24 @@ class SelfDeleteEndpointTests(APITestCase):
         self.user.refresh_from_db()
         self.assertEqual(self.user.username, "alice")     # rien ne bouge
 
-    def test_self_delete_anonymizes_account(self):
+    def test_self_delete_creates_pending_request_does_NOT_anonymize(self):
+        # Nouveau workflow LPD : la POST /me/delete-account/ ne supprime PLUS
+        # directement (qui équivaudrait à un licenciement). Elle crée une
+        # demande PENDING que l'admin/RH doit valider.
         original_id = self.user.id
+        original_username = self.user.username
         resp = self.client.post(
             reverse("me-delete"),
             {"confirm": "DELETE"}, format="json",
         )
-        self.assertEqual(resp.status_code, status.HTTP_200_OK)
+        self.assertEqual(resp.status_code, status.HTTP_201_CREATED)
+        self.assertIn("pending", resp.data)
+        self.assertEqual(resp.data["pending"]["status"], "PENDING")
+        # Le compte est INTACT — l'employé continue à pouvoir se connecter.
         self.user.refresh_from_db()
         self.assertEqual(self.user.id, original_id)
-        self.assertEqual(self.user.username, "deleted_1")
-        self.assertFalse(self.user.is_active)
+        self.assertEqual(self.user.username, original_username)
+        self.assertTrue(self.user.is_active)
 
     def test_superuser_cannot_self_delete(self):
         chief = UserProfile.objects.create_superuser(

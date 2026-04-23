@@ -48,7 +48,20 @@
 | Durée | 3 ans |
 | Motif justificatif | Art. 31 al. 1 LPD (intérêt prépondérant — sécurité) |
 
-### Traitement n°4 — Consentements
+### Traitement n°4bis — Coordonnées domicile pour calcul du temps de trajet
+
+| Champ | Valeur |
+|---|---|
+| Finalité | Comptabiliser le **temps de trajet professionnel supplémentaire** dû lors d'une mission externe (Art. 13 al. 3 OLT 1 — temps de déplacement). Calcul = trajet domicile → mission, MOINS trajet standard domicile → site de rattachement. |
+| Catégories de données | Coordonnées GPS du domicile (lat/lon), trajet standard en minutes |
+| Saisie | Par l'admin uniquement (sélection sur carte). L'employé ne peut PAS modifier ses propres coordonnées domicile (anti-fraude — vise à éviter qu'un employé gonfle artificiellement son temps de trajet). |
+| Granularité | Coordonnées GPS exactes (sélection au clic sur la carte). Pas d'adresse postale stockée. |
+| Sous-traitants | OpenRouteService (calculateur de trajet open source, hébergé en Allemagne) — appelé avec lat/lon uniquement, jamais d'identifiant utilisateur. |
+| Transferts à l'étranger | Oui — appel HTTP à api.openrouteservice.org (DE, UE, niveau de protection adéquat reconnu). |
+| Durée | Durée du contrat. Effacées à l'anonymisation du compte. |
+| Motif justificatif | Art. 31 al. 2 let. a LPD (exécution du contrat de travail — calcul correct du temps de travail compensable). |
+
+### Traitement n°5 — Consentements
 
 | Champ | Valeur |
 |---|---|

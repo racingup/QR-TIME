@@ -6,6 +6,7 @@ from django.urls import include, path
 from django.utils import timezone
 
 from apps.users.urls import me_urlpatterns
+from apps.users.views import PublicBrandingView
 
 
 def health(request):
@@ -26,6 +27,9 @@ def health(request):
 urlpatterns = [
     path(settings.ADMIN_PATH, admin.site.urls),
     path("api/health/", health, name="health"),
+    # Branding public (logo + couleurs) — accessible sans auth pour la
+    # page de login. N'expose pas les infos sensibles (cf. PublicBrandingSerializer).
+    path("api/branding/", PublicBrandingView.as_view(), name="public-branding"),
     path("api/auth/", include("apps.users.urls")),
     path("api/me/", include(me_urlpatterns)),
     path("api/clock/", include("apps.clocking.urls")),

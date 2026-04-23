@@ -1,6 +1,7 @@
 from django.urls import path
 
 from apps.clocking.views import (
+    ClockSessionDeleteView,
     ClockSessionUpdateView,
     DayDetailView,
     HistoryView,
@@ -20,4 +21,5 @@ urlpatterns = [
     path("manual/", ManualClockSessionView.as_view(), name="clock-manual"),
     path("<int:pk>/regularize/", RegularizeSessionView.as_view(), name="clock-regularize"),
     path("<int:pk>/edit/", ClockSessionUpdateView.as_view(), name="clock-edit"),
+    path("<int:pk>/delete/", ClockSessionDeleteView.as_view(), name="clock-delete"),
 ]

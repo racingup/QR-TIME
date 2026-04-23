@@ -232,3 +232,12 @@ DEFAULT_FROM_EMAIL = os.environ.get(
 SERVER_EMAIL = DEFAULT_FROM_EMAIL
 # URL publique pour les liens cliquables dans les mails.
 SITE_PUBLIC_URL = os.environ.get("SITE_PUBLIC_URL", "http://localhost:3001")
+
+# ── Routing (calcul du temps de trajet voiture) ────────────────────────
+# Utilisé pour le trajet standard domicile → site et le trajet pro mission
+# (Art. 13 al. 3 OLT 1). Backend : OpenRouteService (free tier 2000 req/jour).
+# Inscription : https://openrouteservice.org/dev/#/signup
+# Sans clé : les calculs renvoient None silencieusement (fail-open) — l'admin
+# peut toujours saisir manuellement les minutes dans la fiche du collaborateur.
+ROUTING_BACKEND = os.environ.get("ROUTING_BACKEND", "ors")
+ORS_API_KEY = os.environ.get("ORS_API_KEY", "")

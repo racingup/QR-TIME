@@ -12,15 +12,19 @@ if TYPE_CHECKING:
 def compute_overtime(user: "UserProfile", date: date_type) -> Decimal:
     """Return overtime delta in hours (worked − daily target) for the given day.
 
-    Sums the rounded duration of all closed sessions whose clock_in_rounded
-    falls on `date`, then subtracts user.daily_target_hours.
+    Worked = somme des sessions clôturées + trajet pro compensable des
+    missions FIELD du jour (Art. 13 al. 3 OLT 1).
     Positive = overtime, negative = under target. Rounded to 2 decimals.
     """
+    from services.missions_travel import daily_travel_compensable_minutes
+
     sessions = user.sessions.filter(
         clock_in_rounded__date=date,
         clock_out_rounded__isnull=False,
     )
     worked_minutes = sum(s.duration_minutes for s in sessions)
+    # Trajet pro compté UNE FOIS par jour par mission (1 A/R domicile↔site).
+    worked_minutes += daily_travel_compensable_minutes(user, date)
     worked_hours = Decimal(worked_minutes) / Decimal(60)
     delta = worked_hours - user.daily_target_hours
     return delta.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)

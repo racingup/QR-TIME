@@ -28,6 +28,7 @@
 | Consentements | kind, granted, IP, user-agent, timestamp | utilisateur | preuve (Art. 6 al. 6-7 LPD) |
 | Audit administratif | actor, action, target, timestamp | système (managers) | traçabilité, sécurité (Art. 8 LPD) |
 | Métadonnées techniques | IP au consentement, user-agent | navigateur | sécurité, audit |
+| Domicile (coordonnées GPS) | home_lat, home_lon | sélection sur carte par l'admin | calcul du temps de trajet professionnel en mission externe (Art. 13 al. 3 OLT 1) |
 
 **Données sensibles** (Art. 5 let. c LPD) : les absences de type `SICK` (maladie) sont des données sur la santé. Elles sont traitées uniquement dans la mesure nécessaire à la gestion des absences ; aucun détail médical n'est demandé ni stocké.
 
@@ -43,6 +44,7 @@ Le traitement des données personnelles repose sur les motifs suivants :
 | JWT en stockage local du navigateur | Consentement (informé à la connexion) |
 | Audit administratif | Intérêt prépondérant — sécurité et intégrité (Art. 31 al. 1 LPD) |
 | Données de santé (absence type SICK) | Exécution du contrat + base légale (Art. 6 al. 7 LPD) |
+| Coordonnées domicile (calcul de trajet) | Exécution du contrat (Art. 31 al. 2 let. a LPD) — calcul correct du temps de travail compensable (Art. 13 al. 3 OLT 1) |
 
 Conformément à l'**Art. 328b CO**, seules les données portant sur les aptitudes du collaborateur ou nécessaires à l'exécution du contrat sont traitées. Conformément à l'**Art. 26 OLT 3**, aucun système de surveillance du comportement n'est mis en place : la géolocalisation est uniquement ponctuelle, au moment du scan QR, et a pour seule finalité la validation du périmètre du site.
 
