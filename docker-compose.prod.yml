@@ -4,7 +4,7 @@
 #   docker compose -f docker-compose.prod.yml --env-file .env.production up -d --build
 #
 # All env vars come from .env.production (NOT committed).
-# Caddy terminates TLS automatically via Let's Encrypt for ${DOMAIN}.
+# TLS is handled by AppFlowy's nginx (shared_proxy network).
 services:
   db:
     image: postgres:16-alpine
@@ -65,7 +65,10 @@ services:
     restart: unless-stopped
     entrypoint: /app/entrypoint.prod.sh
     command: ["gunicorn", "core.wsgi:application", "--bind", "0.0.0.0:8000",
-              "--workers", "3", "--timeout", "60", "--access-logfile", "-"]
+              "--workers", "2", "--timeout", "60", "--access-logfile", "-"]
+    networks:
+      - default
+      - shared_proxy
     environment:
       DJANGO_SECRET_KEY: ${DJANGO_SECRET_KEY}
       DJANGO_DEBUG: "0"
@@ -145,29 +148,19 @@ services:
   frontend:
     build: ./frontend
     restart: unless-stopped
-    # nginx interne — pas de port exposé, Caddy proxie devant.
-
-  caddy:
-    image: caddy:2-alpine
-    restart: unless-stopped
-    ports:
-      - "80:80"
-      - "443:443"
-      - "443:443/udp"   # HTTP/3
-    volumes:
-      - ./Caddyfile:/etc/caddy/Caddyfile:ro
-      - caddy_data:/data
-      - caddy_config:/config
-    environment:
-      DOMAIN: ${DOMAIN}
-      LETSENCRYPT_EMAIL: ${LETSENCRYPT_EMAIL}
-    depends_on:
-      - backend
-      - frontend
+    # No port exposed — AppFlowy's nginx reverse-proxies to this container.
+    networks:
+      - default
+      - shared_proxy
 
 volumes:
   pgdata:
   pgbackups:
   redisdata:
-  caddy_data:
-  caddy_config:
+
+networks:
+  default:
+    # Internal network for db, redis, backend, celery, etc.
+  shared_proxy:
+    # Shared with AppFlowy's nginx so it can reach backend:8000 and frontend:80.
+    external: true
