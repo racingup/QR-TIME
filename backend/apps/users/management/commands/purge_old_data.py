@@ -78,7 +78,25 @@ def run_purge(dry_run: bool = False) -> dict:
     }
     counts = {label: qs.count() for label, qs in targets.items()}
 
+    # ── GPS minimisation (Art. 6 al. 4 LPD) ──────────────────────────
+    # La politique de confidentialité promet un effacement des coordonnées
+    # GPS après 12 mois maximum. On les nullifie sans supprimer la session.
+    cutoff_gps = now - timedelta(days=365)
+    gps_qs = ClockSession.objects.filter(
+        clock_in__lt=cutoff_gps,
+    ).exclude(
+        gps_lat_in__isnull=True,
+        gps_lon_in__isnull=True,
+        gps_lat_out__isnull=True,
+        gps_lon_out__isnull=True,
+    )
+    counts["GPS coords nullified (>12 months)"] = gps_qs.count()
+
     if not dry_run:
+        gps_qs.update(
+            gps_lat_in=None, gps_lon_in=None,
+            gps_lat_out=None, gps_lon_out=None,
+        )
         for qs in targets.values():
             qs.delete()
         # Trace meta : la purge elle-même fait l'objet d'une entrée audit.

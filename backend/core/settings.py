@@ -94,7 +94,7 @@ AUTH_PASSWORD_VALIDATORS = [
 ]
 
 LANGUAGE_CODE = "fr-fr"
-TIME_ZONE = "Europe/Paris"
+TIME_ZONE = "Europe/Zurich"
 USE_I18N = True
 USE_TZ = True
 
@@ -124,6 +124,10 @@ if not DEBUG:
     CSRF_TRUSTED_ORIGINS = [
         o for o in os.environ.get("CSRF_TRUSTED_ORIGINS", "").split(",") if o.strip()
     ]
+
+# Django admin URL prefix — override with DJANGO_ADMIN_PATH env var on the VPS
+# to keep the panel at a non-guessable path (e.g. "backstage-a7x9k2/").
+ADMIN_PATH = os.environ.get("DJANGO_ADMIN_PATH", "admin/")
 
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 

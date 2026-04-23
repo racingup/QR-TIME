@@ -44,7 +44,7 @@ class AdminUserSerializer(serializers.ModelSerializer):
             "is_active", "home_site", "password",
         ]
         # username is editable (superuser can rename collaborators).
-        read_only_fields = ["id", "vacation_used", "overtime_balance"]
+        read_only_fields = ["id", "vacation_used", "overtime_balance", "is_superuser", "is_staff"]
 
     def create(self, validated_data):
         password = validated_data.pop("password", None) or UserProfile.objects.make_random_password()
