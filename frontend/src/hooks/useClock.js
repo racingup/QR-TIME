@@ -24,11 +24,12 @@ export function useClock() {
         const data = await clockApi.scan({ qr_token: qrToken, justification })
         return _handleResponse(data, setState)
       } catch (e) {
-        setState({
-          status: 'gps_error',
-          error: geoErr,
-          serverError: e.response?.data,
-        })
+        const body = e.response?.data
+        if (e.response?.status === 403 && body?.error === 'EXEMPT_FROM_CLOCKING') {
+          setState({ status: 'exempt', data: body })
+        } else {
+          setState({ status: 'gps_error', error: geoErr, serverError: body })
+        }
         return null
       }
     }
@@ -45,10 +46,12 @@ export function useClock() {
       const body = e.response?.data
       if (e.response?.status === 403 && body?.error === 'GPS_OUT_OF_RANGE') {
         setState({ status: 'gps_out_of_range', data: body })
+      } else if (e.response?.status === 403 && body?.error === 'EXEMPT_FROM_CLOCKING') {
+        setState({ status: 'exempt', data: body })
       } else if (e.response?.status === 404) {
         setState({ status: 'error', error: 'QR inconnu' })
       } else {
-        setState({ status: 'error', error: body?.error || 'Erreur serveur' })
+        setState({ status: 'error', error: body?.error || body?.detail || 'Erreur serveur' })
       }
       return null
     }

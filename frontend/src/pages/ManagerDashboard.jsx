@@ -15,6 +15,17 @@ const TABS = [
   { id: 'reporting', label: 'Reporting mensuel' },
 ]
 
+const ABSENCE_TYPE_LABEL = {
+  VACATION: 'Congés payés',
+  SICK: 'Maladie',
+  OTHER: 'Autre',
+}
+
+const MISSION_TYPE_LABEL = {
+  REMOTE: 'Télétravail',
+  FIELD: 'Mission externe',
+}
+
 export default function ManagerDashboard() {
   const [tab, setTab] = useState('overview')
   return (
@@ -113,6 +124,11 @@ function TeamTab() {
                       super
                     </span>
                   )}
+                  {r.exempt_from_clocking && (
+                    <span className="text-[10px] px-1.5 py-0.5 rounded bg-indigo-100 text-indigo-700" title="Non soumis au timbrage">
+                      non-badgeur
+                    </span>
+                  )}
                   <span
                     className={`ml-auto text-[10px] px-2 py-0.5 rounded-full ${statusBadge.color}`}
                   >
@@ -185,6 +201,9 @@ function OverviewTab() {
   const [loading, setLoading] = useState(true)
   const [missionToApprove, setMissionToApprove] = useState(null)
   const [missionToEdit, setMissionToEdit] = useState(null)
+  const [confirmingRegularize, setConfirmingRegularize] = useState(null) // session id
+  const [rejectingAbsence, setRejectingAbsence] = useState(null) // absence object
+  const [rejectingMission, setRejectingMission] = useState(null) // mission object
 
   const refreshAll = useCallback(async () => {
     const [p, ab, a, m, abs] = await Promise.all([
@@ -208,10 +227,14 @@ function OverviewTab() {
     return () => clearInterval(t)
   }, [refreshAll])
 
-  const quickRegularize = async (sessionId) => {
-    if (!window.confirm('Clôturer cette session avec une durée par défaut de 8h ?')) return
+  const quickRegularize = (sessionId) => {
+    setConfirmingRegularize(sessionId)
+  }
+
+  const doRegularize = async () => {
     try {
-      await clockApi.regularize(sessionId, null)
+      await clockApi.regularize(confirmingRegularize, null)
+      setConfirmingRegularize(null)
       refreshAll()
     } catch (e) {
       alert(`Erreur : ${e.response?.data?.error || e.message}`)
@@ -220,21 +243,36 @@ function OverviewTab() {
 
   const decideAbsence = async (id, action) => {
     try {
-      if (action === 'approve') await absencesApi.approve(id)
-      else {
-        const c = window.prompt('Motif du refus ?') ?? ''
-        await absencesApi.reject(id, c)
+      if (action === 'approve') {
+        await absencesApi.approve(id)
+        refreshAll()
+      } else {
+        const absence = pendingAbsences.find((a) => a.id === id) || { id }
+        setRejectingAbsence(absence)
       }
+    } catch (e) {
+      alert(`Erreur : ${e.response?.data?.error || e.message}`)
+    }
+  }
+
+  const doRejectAbsence = async (reason) => {
+    try {
+      await absencesApi.reject(rejectingAbsence.id, reason)
+      setRejectingAbsence(null)
       refreshAll()
     } catch (e) {
       alert(`Erreur : ${e.response?.data?.error || e.message}`)
     }
   }
 
-  const rejectMission = async (id) => {
-    const c = window.prompt('Motif du refus ?') ?? ''
+  const rejectMission = (m) => {
+    setRejectingMission(m)
+  }
+
+  const doRejectMission = async (reason) => {
     try {
-      await missionsApi.reject(id, c)
+      await missionsApi.reject(rejectingMission.id, reason)
+      setRejectingMission(null)
       refreshAll()
     } catch (e) {
       alert(`Erreur : ${e.response?.data?.error || e.message}`)
@@ -275,7 +313,7 @@ function OverviewTab() {
             >
               <p className="font-semibold text-red-800">{a.username}</p>
               <p className="text-xs text-red-700">
-                Absent · {a.absence_type}
+                Absent · {ABSENCE_TYPE_LABEL[a.absence_type] || a.absence_type}
               </p>
               <p className="text-xs text-red-600 mt-1">
                 {a.date_start} → {a.date_end}
@@ -361,7 +399,7 @@ function OverviewTab() {
                     <span>
                       <span className="font-semibold">{m.username || `#${m.user}`}</span>
                       <span className="text-slate-400 mx-1">·</span>
-                      {m.mission_type}
+                      {MISSION_TYPE_LABEL[m.mission_type] || m.mission_type}
                       <span className="text-slate-400 mx-1">·</span>
                       <span className="text-slate-600">{m.date_start} → {m.date_end}</span>
                       {m.location_name && (
@@ -387,7 +425,7 @@ function OverviewTab() {
                         </button>
                         <button
                           type="button"
-                          onClick={() => rejectMission(m.id)}
+                          onClick={() => rejectMission(m)}
                           className="press bg-rose-600 text-white px-3 py-1 rounded-full text-xs"
                         >
                           Refuser
@@ -425,7 +463,7 @@ function OverviewTab() {
                     <span>
                       <span className="font-semibold">{a.username || `#${a.user}`}</span>
                       <span className="text-slate-400 mx-1">·</span>
-                      {a.absence_type}
+                      {ABSENCE_TYPE_LABEL[a.absence_type] || a.absence_type}
                       <span className="text-slate-400 mx-1">·</span>
                       <span className="text-slate-600">{a.date_start} → {a.date_end}</span>
                       <span className="text-slate-500"> · {a.days_count} j</span>
@@ -481,6 +519,82 @@ function OverviewTab() {
           onSaved={() => { setMissionToEdit(null); refreshAll() }}
         />
       )}
+      {confirmingRegularize !== null && (
+        <ConfirmDialog
+          message="Clôturer cette session avec une durée par défaut de 8h ?"
+          confirmLabel="⚡ Clôturer (8h)"
+          confirmClass="bg-emerald-600 text-white"
+          onConfirm={doRegularize}
+          onCancel={() => setConfirmingRegularize(null)}
+        />
+      )}
+      {rejectingAbsence !== null && (
+        <RejectReasonDialog
+          title="Refuser la demande de congé"
+          onConfirm={doRejectAbsence}
+          onCancel={() => setRejectingAbsence(null)}
+        />
+      )}
+      {rejectingMission !== null && (
+        <RejectReasonDialog
+          title="Refuser la mission"
+          onConfirm={doRejectMission}
+          onCancel={() => setRejectingMission(null)}
+        />
+      )}
+    </div>
+  )
+}
+
+function ConfirmDialog({ message, confirmLabel, confirmClass, onConfirm, onCancel }) {
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4" role="dialog">
+      <div className="absolute inset-0 bg-slate-900/30 backdrop-blur-sm" onClick={onCancel} aria-hidden />
+      <div className="relative glass-strong w-full max-w-sm rounded-3xl p-5 space-y-4">
+        <p className="text-sm text-slate-700">{message}</p>
+        <div className="flex gap-2 justify-end">
+          <button type="button" onClick={onCancel} className="press px-4 py-2 text-sm">
+            Annuler
+          </button>
+          <button type="button" onClick={onConfirm} className={`press px-4 py-2 rounded-xl text-sm ${confirmClass}`}>
+            {confirmLabel}
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function RejectReasonDialog({ title, onConfirm, onCancel }) {
+  const [reason, setReason] = useState('')
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4" role="dialog">
+      <div className="absolute inset-0 bg-slate-900/30 backdrop-blur-sm" onClick={onCancel} aria-hidden />
+      <div className="relative glass-strong w-full max-w-sm rounded-3xl p-5 space-y-3">
+        <h3 className="font-semibold">{title}</h3>
+        <label className="block text-sm">
+          Motif du refus
+          <textarea
+            className="glass-input w-full mt-1 h-20"
+            value={reason}
+            onChange={(e) => setReason(e.target.value)}
+            placeholder="Motif (optionnel)"
+            autoFocus
+          />
+        </label>
+        <div className="flex gap-2 justify-end">
+          <button type="button" onClick={onCancel} className="press px-4 py-2 text-sm">
+            Annuler
+          </button>
+          <button
+            type="button"
+            onClick={() => onConfirm(reason)}
+            className="press bg-rose-600 text-white px-4 py-2 rounded-xl text-sm"
+          >
+            Confirmer le refus
+          </button>
+        </div>
+      </div>
     </div>
   )
 }
@@ -995,7 +1109,7 @@ function TeamCalendarTab() {
       if (a.status === 'REJECTED') continue
       const c = colorFor(a.user_id)
       dayWalk(a.date_start, a.date_end, (d) =>
-        pushDay(d, { kind: 'absence', color: c, label: a.username, sub: a.absence_type, status: a.status }),
+        pushDay(d, { kind: 'absence', color: c, label: a.username, sub: ABSENCE_TYPE_LABEL[a.absence_type] || a.absence_type, status: a.status }),
       )
     }
     return { byDay: map, userColors: colorMap }

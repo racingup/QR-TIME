@@ -89,8 +89,11 @@ export default function AbsenceRequestPage({ presetKind }) {
         <p className="text-3xl">🏖️</p>
         <p className="font-semibold mt-2">Demande envoyée</p>
         <p className="text-sm mt-2 text-slate-700">
-          <strong>{created.days_count} j</strong> du {created.date_start} au{' '}
-          {created.date_end}. Statut : <strong>{created.status}</strong>.
+          <strong>{created.days_count} jour{Number(created.days_count) > 1 ? 's' : ''}</strong>{' '}
+          du {created.date_start} au {created.date_end}.
+          Statut : <strong>{
+            { PENDING: 'En attente', APPROVED: 'Validé', REJECTED: 'Refusé' }[created.status] || created.status
+          }</strong>.
         </p>
       </div>
     )

@@ -168,18 +168,39 @@ export default function ScanPage() {
       )}
 
       {state.status === 'ok' && (
-        <div className="glass-strong rounded-3xl p-6 max-w-sm w-full text-center mt-6">
-          <p className="text-5xl">✓</p>
-          <p className="font-semibold text-lg mt-2 text-emerald-700">
-            Pointage enregistré
-          </p>
-          <p className="text-sm mt-3">
-            {state.data.action === 'IN' ? 'Arrivée' : 'Départ'} à{' '}
-            <strong>
-              {fmtTime(state.data.action === 'IN' ? state.data.clock_in_rounded : state.data.clock_out_rounded)}
-            </strong>
-          </p>
-          <div className="flex gap-2 mt-5 justify-center">
+        <div className="glass-strong rounded-3xl p-6 max-w-sm w-full text-center mt-6 space-y-4">
+          <div>
+            <p className="text-5xl">✓</p>
+            <p className="font-semibold text-lg mt-2 text-emerald-700">
+              Pointage enregistré
+            </p>
+            <p className="text-sm mt-3">
+              {state.data.action === 'IN' ? 'Arrivée' : 'Départ'} à{' '}
+              <strong>
+                {fmtTime(state.data.action === 'IN' ? state.data.clock_in_rounded : state.data.clock_out_rounded)}
+              </strong>
+            </p>
+          </div>
+
+          {/* Warnings (daily min/max) */}
+          {state.data.warnings?.length > 0 && (
+            <div className="space-y-2 text-left">
+              {state.data.warnings.map((w) => (
+                <div key={w.code} className={`rounded-xl px-3 py-2.5 text-xs flex items-start gap-2 ${
+                  w.code === 'DAILY_MAX_EXCEEDED'
+                    ? 'bg-rose-50 text-rose-800 border border-rose-200'
+                    : 'bg-amber-50 text-amber-800 border border-amber-200'
+                }`}>
+                  <span className="mt-0.5 shrink-0">
+                    {w.code === 'DAILY_MAX_EXCEEDED' ? '⚠' : 'ℹ'}
+                  </span>
+                  <span>{w.detail}</span>
+                </div>
+              ))}
+            </div>
+          )}
+
+          <div className="flex gap-2 justify-center">
             <button type="button" onClick={handleReset} className="pill pill-ghost">
               Nouveau scan
             </button>
@@ -187,6 +208,17 @@ export default function ScanPage() {
               Retour
             </button>
           </div>
+        </div>
+      )}
+
+      {state.status === 'exempt' && (
+        <div className="glass-strong rounded-3xl p-6 max-w-sm w-full text-center mt-6">
+          <p className="text-5xl">📋</p>
+          <p className="font-semibold text-base mt-3">Non soumis au timbrage</p>
+          <p className="text-sm text-slate-600 mt-2">{state.data?.detail}</p>
+          <button type="button" onClick={() => navigate('/')} className="pill pill-primary mt-5">
+            Retour
+          </button>
         </div>
       )}
 

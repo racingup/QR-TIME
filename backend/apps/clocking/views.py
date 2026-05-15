@@ -45,6 +45,19 @@ class ScanView(APIView):
         now = timezone.now()
         today: date_type = timezone.localdate(now)
 
+        # ── Exempt-from-clocking guard ─────────────────────────────────
+        if getattr(user, "exempt_from_clocking", False):
+            return Response(
+                {
+                    "error": "EXEMPT_FROM_CLOCKING",
+                    "detail": (
+                        "Vous n'êtes pas soumis au timbrage. "
+                        "Votre présence est validée via la planification."
+                    ),
+                },
+                status=status.HTTP_403_FORBIDDEN,
+            )
+
         # ── Resolve token: Site OR Mission ─────────────────────────────
         site = Site.objects.filter(qr_code_token=qr_token).first()
         mission = None
@@ -163,6 +176,40 @@ class ScanView(APIView):
 
         body = ClockSessionSerializer(session).data
         body["action"] = action
+
+        # ── Daily min/max warnings (clock-out only) ────────────────────
+        if action == "OUT":
+            from apps.users.models import WorkTimePolicy
+            policy = WorkTimePolicy.load()
+            closed_today = ClockSession.objects.filter(
+                user=user,
+                clock_in__date=today,
+                clock_out_rounded__isnull=False,
+            )
+            today_worked = sum(s.duration_minutes for s in closed_today)
+            warnings = []
+            if policy.daily_min_minutes > 0 and today_worked < policy.daily_min_minutes:
+                warnings.append({
+                    "code": "DAILY_MIN_NOT_MET",
+                    "detail": (
+                        f"Temps travaillé ({today_worked} min) inférieur "
+                        f"au minimum requis ({policy.daily_min_minutes} min)."
+                    ),
+                    "worked_minutes": today_worked,
+                    "threshold_minutes": policy.daily_min_minutes,
+                })
+            if policy.daily_max_minutes > 0 and today_worked > policy.daily_max_minutes:
+                warnings.append({
+                    "code": "DAILY_MAX_EXCEEDED",
+                    "detail": (
+                        f"Temps travaillé ({today_worked} min) supérieur "
+                        f"au maximum autorisé ({policy.daily_max_minutes} min)."
+                    ),
+                    "worked_minutes": today_worked,
+                    "threshold_minutes": policy.daily_max_minutes,
+                })
+            body["warnings"] = warnings
+
         return Response(body, status=status.HTTP_200_OK)
 
 
@@ -603,6 +650,7 @@ class ManagerAbsentView(APIView):
         absent_user_ids = {a["user_id"] for a in absent}
         silent = list(
             scope.exclude(id__in=present_user_ids | absent_user_ids)
+            .exclude(exempt_from_clocking=True)
             .values("id", "username")
         )
         return Response({
@@ -853,6 +901,7 @@ class ManagerTeamView(APIView):
                 "username": u.get_username(),
                 "is_manager": u.is_manager,
                 "is_superuser": u.is_superuser,
+                "exempt_from_clocking": getattr(u, 'exempt_from_clocking', False),
                 "home_site_id": u.home_site_id,
                 "home_site_name": u.home_site.name if u.home_site_id else None,
                 "today_status": today_status,

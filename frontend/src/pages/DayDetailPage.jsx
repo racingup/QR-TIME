@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import { Link, useParams, useSearchParams } from 'react-router-dom'
 import * as clockApi from '../api/clock'
+import * as meApi from '../api/me'
 import { useAuth } from '../hooks/useAuth'
 
 function fmtTime(iso) {
@@ -37,6 +38,9 @@ export default function DayDetailPage() {
   const [error, setError] = useState(null)
   const [editing, setEditing] = useState(null)
   const [manualOpen, setManualOpen] = useState(false)
+  const [deletingSession, setDeletingSession] = useState(null) // session object
+  const [deleteErr, setDeleteErr] = useState(null)
+  const [policy, setPolicy] = useState(null)
 
   const isSuperUser = Boolean(user?.is_superuser)
   const isManagerRole = Boolean(user?.is_manager || isSuperUser)
@@ -56,6 +60,9 @@ export default function DayDetailPage() {
   }, [date, targetUserId])
 
   useEffect(() => { refresh() }, [refresh])
+  useEffect(() => {
+    meApi.summary().then((s) => setPolicy(s.policy)).catch(() => {})
+  }, [])
 
   if (loading) return <p className="p-6">Chargement…</p>
   if (error) return <p className="p-6 text-red-700">{JSON.stringify(error)}</p>
@@ -87,6 +94,34 @@ export default function DayDetailPage() {
             <span className="ml-2 text-emerald-700">● session en cours</span>
           )}
         </p>
+        {/* Policy thresholds — only show when relevant limits are set */}
+        {policy && (policy.daily_min_minutes > 0 || policy.daily_max_minutes > 0) && !data.open_session && (
+          <div className="mt-3 flex flex-wrap gap-2">
+            {policy.daily_min_minutes > 0 && (
+              <span className={`text-xs px-2.5 py-1 rounded-full border ${
+                data.total_minutes < policy.daily_min_minutes
+                  ? 'bg-amber-50 border-amber-300 text-amber-800'
+                  : 'bg-emerald-50 border-emerald-300 text-emerald-800'
+              }`}>
+                {data.total_minutes < policy.daily_min_minutes ? '⚠' : '✓'} Min {fmtDuration(policy.daily_min_minutes)}
+              </span>
+            )}
+            {policy.daily_max_minutes > 0 && (
+              <span className={`text-xs px-2.5 py-1 rounded-full border ${
+                data.total_minutes > policy.daily_max_minutes
+                  ? 'bg-rose-50 border-rose-300 text-rose-800'
+                  : 'bg-slate-50 border-slate-200 text-slate-600'
+              }`}>
+                {data.total_minutes > policy.daily_max_minutes ? '⚠' : '●'} Max {fmtDuration(policy.daily_max_minutes)}
+              </span>
+            )}
+            {policy.auto_deduct_break && data.total_minutes >= policy.break_trigger_minutes && (
+              <span className="text-xs px-2.5 py-1 rounded-full border bg-indigo-50 border-indigo-200 text-indigo-700">
+                Pause déduite : −{policy.break_duration_minutes - policy.paid_break_minutes} min
+              </span>
+            )}
+          </div>
+        )}
       </header>
 
       {/* Contexte métier : férié / mission / absence */}
@@ -189,26 +224,7 @@ export default function DayDetailPage() {
                       </button>
                       <button
                         type="button"
-                        onClick={async () => {
-                          // Suppression définitive — anti-clic accidentel + audit log
-                          // côté serveur (la trace de qui/quand reste 10 ans).
-                          const ok = window.confirm(
-                            `Supprimer ce pointage de ${fmtTime(s.clock_in)}` +
-                            (s.clock_out ? ` → ${fmtTime(s.clock_out)} ?` : ' (en cours) ?') +
-                            '\n\nL\'opération est tracée dans le journal d\'audit.',
-                          )
-                          if (!ok) return
-                          try {
-                            await clockApi.deleteSession(s.id)
-                            refresh()
-                          } catch (e) {
-                            alert(
-                              `Erreur : ${
-                                e?.response?.data?.error || e?.message || 'inconnue'
-                              }`,
-                            )
-                          }
-                        }}
+                        onClick={() => { setDeletingSession(s); setDeleteErr(null) }}
                         className="press px-3 py-1 rounded-full text-xs bg-rose-600 text-white hover:bg-rose-700"
                         title="Supprimer ce pointage (audit log conservé)"
                       >
@@ -248,6 +264,46 @@ export default function DayDetailPage() {
           onClose={() => setManualOpen(false)}
           onSaved={() => { setManualOpen(false); refresh() }}
         />
+      )}
+
+      {deletingSession && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4" role="dialog">
+          <div className="absolute inset-0 bg-slate-900/30 backdrop-blur-sm" onClick={() => setDeletingSession(null)} aria-hidden />
+          <div className="relative glass-strong w-full max-w-sm rounded-3xl p-5 space-y-4">
+            <p className="font-semibold text-rose-700">Supprimer ce pointage ?</p>
+            <p className="text-sm text-slate-600">
+              Session du <strong>{fmtTime(deletingSession.clock_in)}</strong>
+              {deletingSession.clock_out ? ` → ${fmtTime(deletingSession.clock_out)}` : ' (en cours)'}.
+              <br />
+              <span className="text-xs text-slate-400 mt-1 block">
+                L'opération est tracée dans le journal d'audit et ne peut pas être annulée.
+              </span>
+            </p>
+            {deleteErr && (
+              <p className="text-xs text-rose-700 bg-rose-50 rounded px-2 py-1">{String(deleteErr)}</p>
+            )}
+            <div className="flex gap-2 justify-end">
+              <button type="button" onClick={() => setDeletingSession(null)} className="press px-4 py-2 text-sm">
+                Annuler
+              </button>
+              <button
+                type="button"
+                onClick={async () => {
+                  try {
+                    await clockApi.deleteSession(deletingSession.id)
+                    setDeletingSession(null)
+                    refresh()
+                  } catch (e) {
+                    setDeleteErr(e?.response?.data?.error || e?.message || 'Erreur inconnue')
+                  }
+                }}
+                className="press bg-rose-600 text-white px-4 py-2 rounded-xl text-sm"
+              >
+                Supprimer
+              </button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   )
@@ -388,68 +444,79 @@ function SessionEditModal({ session, onClose, onSaved }) {
   }
 
   return (
-    <div className="fixed inset-0 bg-black/40 flex items-center justify-center p-4 z-50">
-      <div className="bg-white rounded-lg p-5 max-w-md w-full space-y-3">
-        <h3 className="font-semibold">Édition session #{session.id}</h3>
-        <div className="grid grid-cols-2 gap-3 text-sm">
-          <label>
-            Entrée brute
-            <input
-              type="datetime-local"
-              className="w-full border rounded p-2 mt-1"
-              value={form.clock_in}
-              onChange={(e) => setForm({ ...form, clock_in: e.target.value })}
-            />
-          </label>
-          <label>
-            Entrée arrondie
-            <input
-              type="datetime-local"
-              className="w-full border rounded p-2 mt-1"
-              value={form.clock_in_rounded}
-              onChange={(e) => setForm({ ...form, clock_in_rounded: e.target.value })}
-            />
-          </label>
-          <label>
-            Sortie brute
-            <input
-              type="datetime-local"
-              className="w-full border rounded p-2 mt-1"
-              value={form.clock_out}
-              onChange={(e) => setForm({ ...form, clock_out: e.target.value })}
-            />
-          </label>
-          <label>
-            Sortie arrondie
-            <input
-              type="datetime-local"
-              className="w-full border rounded p-2 mt-1"
-              value={form.clock_out_rounded}
-              onChange={(e) => setForm({ ...form, clock_out_rounded: e.target.value })}
-            />
-          </label>
+    <div className="fixed inset-0 bg-slate-900/30 backdrop-blur-sm flex items-end sm:items-center justify-center p-3 z-50">
+      <div className="glass-strong rounded-3xl p-5 w-full sm:max-w-md max-h-[90vh] overflow-y-auto safe-bottom space-y-4">
+        <div className="flex items-center justify-between">
+          <h3 className="font-semibold">Édition session #{session.id}</h3>
+          <button type="button" onClick={onClose} className="press w-8 h-8 rounded-lg hover:bg-white/40">✕</button>
         </div>
-        <label className="text-sm block">
-          Justification
+
+        <fieldset className="glass-soft rounded-xl p-3 space-y-3">
+          <legend className="text-xs uppercase tracking-widest text-slate-500 px-1">Horodatages</legend>
+          <div className="grid grid-cols-2 gap-3 text-sm">
+            <label className="block">
+              <span className="text-slate-600 text-xs">Entrée brute</span>
+              <input
+                type="datetime-local"
+                className="glass-input w-full mt-1 text-sm"
+                value={form.clock_in}
+                onChange={(e) => setForm({ ...form, clock_in: e.target.value })}
+              />
+            </label>
+            <label className="block">
+              <span className="text-slate-600 text-xs">Entrée arrondie</span>
+              <input
+                type="datetime-local"
+                className="glass-input w-full mt-1 text-sm"
+                value={form.clock_in_rounded}
+                onChange={(e) => setForm({ ...form, clock_in_rounded: e.target.value })}
+              />
+            </label>
+            <label className="block">
+              <span className="text-slate-600 text-xs">Sortie brute</span>
+              <input
+                type="datetime-local"
+                className="glass-input w-full mt-1 text-sm"
+                value={form.clock_out}
+                onChange={(e) => setForm({ ...form, clock_out: e.target.value })}
+              />
+            </label>
+            <label className="block">
+              <span className="text-slate-600 text-xs">Sortie arrondie</span>
+              <input
+                type="datetime-local"
+                className="glass-input w-full mt-1 text-sm"
+                value={form.clock_out_rounded}
+                onChange={(e) => setForm({ ...form, clock_out_rounded: e.target.value })}
+              />
+            </label>
+          </div>
+        </fieldset>
+
+        <label className="block text-sm">
+          <span className="text-slate-600">Justification</span>
           <textarea
-            className="w-full border rounded p-2 mt-1 h-16"
+            className="glass-input w-full mt-1 h-16"
             value={form.justification}
             onChange={(e) => setForm({ ...form, justification: e.target.value })}
+            placeholder="Motif de l'anomalie…"
           />
         </label>
-        <div className="flex flex-wrap gap-3 text-sm">
-          <label className="flex items-center gap-1">
+
+        <div className="flex flex-wrap gap-4 text-sm">
+          <label className="flex items-center gap-2">
             <input
               type="checkbox"
+              className="rounded"
               checked={form.is_forgotten}
               onChange={(e) => setForm({ ...form, is_forgotten: e.target.checked })}
             />
-            Oubli
+            <span className="text-slate-700">Marqué "oubli"</span>
           </label>
-          <label>
-            Justif :
+          <label className="flex items-center gap-2">
+            <span className="text-slate-600">Justification :</span>
             <select
-              className="border rounded p-1 ml-1"
+              className="border rounded-lg p-1.5 text-sm bg-white/60"
               value={
                 form.justification_approved === true ? 'true'
                   : form.justification_approved === false ? 'false' : 'null'
@@ -463,20 +530,21 @@ function SessionEditModal({ session, onClose, onSaved }) {
                 })
               }
             >
-              <option value="null">en attente</option>
-              <option value="true">validée</option>
-              <option value="false">refusée</option>
+              <option value="null">⏳ en attente</option>
+              <option value="true">✓ validée</option>
+              <option value="false">✕ refusée</option>
             </select>
           </label>
         </div>
-        {err && <p className="text-red-700 text-xs">{JSON.stringify(err)}</p>}
-        <div className="flex gap-2 justify-end">
-          <button type="button" onClick={onClose} className="px-3 py-1 text-sm">Annuler</button>
+
+        {err && <p className="text-rose-700 text-xs bg-rose-50 rounded px-2 py-1">{JSON.stringify(err)}</p>}
+        <div className="flex gap-2 justify-end pt-1">
+          <button type="button" onClick={onClose} className="press px-4 py-2 text-sm">Annuler</button>
           <button
             type="button"
             disabled={saving}
             onClick={onSave}
-            className="bg-blue-600 text-white px-4 py-2 rounded text-sm disabled:opacity-50"
+            className="pill pill-primary disabled:opacity-50"
           >
             {saving ? 'Enregistrement…' : 'Enregistrer'}
           </button>

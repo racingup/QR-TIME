@@ -3,10 +3,11 @@
 Triggered on the final clock_out of a day.
 Rules are loaded dynamically from MajorationRule so admins can tune rates
 without redeployment.
+WorkTimePolicy drives break deductions and holiday-eve reduced targets.
 """
 from __future__ import annotations
 
-from datetime import date as date_type
+from datetime import date as date_type, timedelta
 from decimal import ROUND_HALF_UP, Decimal
 from typing import TYPE_CHECKING
 
@@ -20,12 +21,21 @@ def compute_overtime(user: "UserProfile", date: date_type) -> Decimal:
     Worked = sum of closed sessions + compensable travel minutes for FIELD
     missions (Art. 13 al. 3 OLT 1).
 
+    Overnight break deduction is applied when WorkTimePolicy.auto_deduct_break
+    is enabled and worked minutes exceed break_trigger_minutes.
+
     Overtime hours beyond the configured thresholds are weighted by the
     applicable MajorationRule rate. If no rule applies, the raw delta is used.
 
+    On a day that precedes a public holiday, the target hours are reduced to
+    WorkTimePolicy.eve_holiday_reduced_minutes / 60 (when > 0).
+
     Returns a signed decimal in hours (positive = overtime, negative = deficit).
     """
+    from apps.users.models import SiteHoliday, WorkTimePolicy
     from services.missions_travel import daily_travel_compensable_minutes
+
+    policy = WorkTimePolicy.load()
 
     sessions = user.sessions.filter(
         clock_in_rounded__date=date,
@@ -34,8 +44,20 @@ def compute_overtime(user: "UserProfile", date: date_type) -> Decimal:
     worked_minutes = sum(s.duration_minutes for s in sessions)
     worked_minutes += daily_travel_compensable_minutes(user, date)
 
+    # ── Break deduction (auto) ───────────────────────────────────────────
+    if policy.auto_deduct_break and worked_minutes >= policy.break_trigger_minutes:
+        deduction = max(0, policy.break_duration_minutes - policy.paid_break_minutes)
+        worked_minutes = max(0, worked_minutes - deduction)
+
     weighted_hours = _apply_majoration_rules(worked_minutes, date)
+
+    # ── Holiday-eve reduced target ───────────────────────────────────────
     target_hours = user.daily_target_hours
+    if policy.eve_holiday_reduced_minutes > 0:
+        next_day = date + timedelta(days=1)
+        if SiteHoliday.objects.filter(date=next_day).exists():
+            target_hours = Decimal(str(policy.eve_holiday_reduced_minutes)) / 60
+
     delta = Decimal(str(weighted_hours)) - target_hours
     return delta.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
 

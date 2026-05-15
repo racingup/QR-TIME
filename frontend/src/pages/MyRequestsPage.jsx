@@ -16,6 +16,23 @@ const STATUS_PILL = {
   REJECTED: 'bg-rose-100/80 text-rose-800',
 }
 
+const STATUS_LABEL = {
+  PENDING: 'En attente',
+  APPROVED: 'Validé',
+  REJECTED: 'Refusé',
+}
+
+const ABSENCE_LABEL = {
+  VACATION: 'Congés payés',
+  SICK: 'Maladie',
+  OTHER: 'Autre',
+}
+
+const MISSION_LABEL = {
+  REMOTE: 'Télétravail',
+  FIELD: 'Mission externe',
+}
+
 export default function MyRequestsPage() {
   const [missions, setMissions] = useState([])
   const [absences, setAbsences] = useState([])
@@ -24,6 +41,8 @@ export default function MyRequestsPage() {
   const [kindFilter, setKindFilter] = useState('all')
   const [missionEditing, setMissionEditing] = useState(null)
   const [missionQr, setMissionQr] = useState(null)
+  const [cancellingId, setCancellingId] = useState(null)
+  const [cancelErr, setCancelErr] = useState(null)
 
   const refresh = useCallback(async () => {
     setLoading(true)
@@ -36,6 +55,17 @@ export default function MyRequestsPage() {
     }
   }, [])
 
+  const doCancel = async () => {
+    setCancelErr(null)
+    try {
+      await absencesApi.cancel(cancellingId)
+      setCancellingId(null)
+      refresh()
+    } catch (e) {
+      setCancelErr(e.response?.data?.detail || 'Erreur lors de l\'annulation')
+    }
+  }
+
   useEffect(() => { refresh() }, [refresh])
 
   const items = useMemo(() => {
@@ -43,7 +73,7 @@ export default function MyRequestsPage() {
       kind: 'mission',
       raw: x,
       id: x.id,
-      label: `${x.mission_type}${x.location_name ? ` · ${x.location_name}` : ''}${x.mission_number ? ` · N° ${x.mission_number}` : ''}`,
+      label: `${MISSION_LABEL[x.mission_type] || x.mission_type}${x.location_name ? ` · ${x.location_name}` : ''}${x.mission_number ? ` · N° ${x.mission_number}` : ''}`,
       date_start: x.date_start, date_end: x.date_end,
       status: x.status, manager_comment: x.manager_comment, created_at: x.created_at,
     }))
@@ -51,7 +81,7 @@ export default function MyRequestsPage() {
       kind: 'absence',
       raw: x,
       id: x.id,
-      label: `${x.absence_type}${x.days_count ? ` · ${x.days_count} j` : ''}`,
+      label: `${ABSENCE_LABEL[x.absence_type] || x.absence_type}${x.days_count ? ` · ${x.days_count} j` : ''}`,
       date_start: x.date_start, date_end: x.date_end,
       status: x.status, manager_comment: x.manager_comment, created_at: x.created_at,
     }))
@@ -83,7 +113,7 @@ export default function MyRequestsPage() {
               statusFilter === s ? 'bg-slate-900 text-white' : 'glass-soft text-slate-700'
             }`}
           >
-            {s === 'ALL' ? 'Tous' : s} ({counts[s] || 0})
+            {s === 'ALL' ? 'Tous' : (STATUS_LABEL[s] || s)} ({counts[s] || 0})
           </button>
         ))}
         <span className="text-xs text-slate-500 mx-1 ml-3">Type</span>
@@ -123,7 +153,7 @@ export default function MyRequestsPage() {
                   {it.date_start} → {it.date_end}
                 </span>
                 <span className={`text-xs px-2 py-0.5 rounded-full ${STATUS_PILL[it.status]}`}>
-                  {it.status}
+                  {STATUS_LABEL[it.status] || it.status}
                 </span>
                 <span className="ml-auto flex items-center gap-2">
                   {it.kind === 'mission' && it.status === 'PENDING' && (
@@ -142,6 +172,15 @@ export default function MyRequestsPage() {
                       className="press px-3 py-1 rounded-full bg-slate-900 text-white text-xs"
                     >
                       📱 Mon QR
+                    </button>
+                  )}
+                  {it.kind === 'absence' && it.status === 'PENDING' && (
+                    <button
+                      type="button"
+                      onClick={() => { setCancellingId(it.id); setCancelErr(null) }}
+                      className="press px-3 py-1 rounded-full text-xs bg-rose-50 text-rose-700 border border-rose-200"
+                    >
+                      Annuler
                     </button>
                   )}
                 </span>
@@ -163,6 +202,25 @@ export default function MyRequestsPage() {
             </li>
           ))}
         </ul>
+      )}
+
+      {cancellingId !== null && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4" role="dialog">
+          <div className="absolute inset-0 bg-slate-900/30 backdrop-blur-sm" onClick={() => setCancellingId(null)} aria-hidden />
+          <div className="relative glass-strong w-full max-w-sm rounded-3xl p-5 space-y-4">
+            <p className="font-semibold">Annuler cette demande ?</p>
+            <p className="text-sm text-slate-600">La demande sera marquée comme annulée et ne pourra plus être modifiée.</p>
+            {cancelErr && <p className="text-xs text-rose-700 bg-rose-50 rounded px-2 py-1">{cancelErr}</p>}
+            <div className="flex gap-2 justify-end">
+              <button type="button" onClick={() => setCancellingId(null)} className="press px-4 py-2 text-sm">
+                Garder
+              </button>
+              <button type="button" onClick={doCancel} className="press bg-rose-600 text-white px-4 py-2 rounded-xl text-sm">
+                Confirmer l'annulation
+              </button>
+            </div>
+          </div>
+        </div>
       )}
 
       {missionEditing && (

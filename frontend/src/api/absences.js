@@ -10,3 +10,5 @@ export const reject = (id, comment = '') =>
   api.patch(`/absences/${id}/reject/`, { manager_comment: comment }).then((r) => r.data)
 export const update = (id, data) =>
   api.patch(`/absences/${id}/`, data).then((r) => r.data)
+export const cancel = (id) =>
+  api.post(`/absences/${id}/cancel/`).then((r) => r.data)

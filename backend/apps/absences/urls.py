@@ -2,6 +2,7 @@ from django.urls import path
 
 from apps.absences.views import (
     AbsenceApproveView,
+    AbsenceCancelView,
     AbsenceCreateView,
     AbsenceRejectView,
     AbsenceUpdateView,
@@ -16,4 +17,5 @@ urlpatterns = [
     path("<int:pk>/", AbsenceUpdateView.as_view(), name="absence-update"),
     path("<int:pk>/approve/", AbsenceApproveView.as_view(), name="absence-approve"),
     path("<int:pk>/reject/", AbsenceRejectView.as_view(), name="absence-reject"),
+    path("<int:pk>/cancel/", AbsenceCancelView.as_view(), name="absence-cancel"),
 ]

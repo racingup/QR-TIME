@@ -132,9 +132,17 @@ function Greeting() {
           </div>
         )}
       </div>
+      {/* Exempt badge */}
+      {summary.exempt_from_clocking && (
+        <div className="mt-2 text-xs px-3 py-1.5 rounded-lg bg-indigo-50 text-indigo-700 border border-indigo-200 flex items-center gap-1.5">
+          <span>📋</span>
+          <span>Non soumis au timbrage — présence validée via la planification</span>
+        </div>
+      )}
       {summary.today.has_open_session && (
         <p className="mt-2 text-xs text-emerald-700">● Session en cours</p>
       )}
+      <PolicyCard policy={summary.policy} />
     </section>
   )
 }
@@ -234,6 +242,48 @@ function FabCluster({ onScan, onAbsence }) {
       </button>
     </div>
   )
+}
+
+function PolicyCard({ policy }) {
+  const [open, setOpen] = useState(false)
+  if (!policy) return null
+
+  const active = []
+  if (policy.auto_deduct_break) {
+    const net = policy.break_duration_minutes - policy.paid_break_minutes
+    active.push(`Pause auto : −${net} min au-delà de ${minsHHMM(policy.break_trigger_minutes)}`)
+  }
+  if (policy.daily_min_minutes > 0) active.push(`Minimum : ${minsHHMM(policy.daily_min_minutes)}`)
+  if (policy.daily_max_minutes > 0) active.push(`Maximum : ${minsHHMM(policy.daily_max_minutes)}`)
+  if (policy.eve_holiday_reduced_minutes > 0) active.push(`Veilles fériés : cible ${minsHHMM(policy.eve_holiday_reduced_minutes)}`)
+  if (active.length === 0) return null
+
+  return (
+    <div className="mt-3">
+      <button
+        type="button"
+        onClick={() => setOpen((o) => !o)}
+        className="text-xs text-slate-500 flex items-center gap-1 hover:text-slate-700"
+      >
+        <span>{open ? '▾' : '▸'}</span>
+        Règles actives ({active.length})
+      </button>
+      {open && (
+        <ul className="mt-1.5 space-y-1">
+          {active.map((a) => (
+            <li key={a} className="text-xs bg-slate-50/80 rounded-lg px-2.5 py-1.5 text-slate-600 border border-slate-100">
+              {a}
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  )
+}
+
+function minsHHMM(mins) {
+  if (!mins) return '0h00'
+  return `${Math.floor(mins / 60)}h${String(mins % 60).padStart(2, '0')}`
 }
 
 function AbsenceTypeMenu({ onPick, onClose }) {

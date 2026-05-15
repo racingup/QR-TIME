@@ -1297,6 +1297,11 @@ function WorkTimeTab() {
 
   const p = (field) => (e) => setPolicy((prev) => ({ ...prev, [field]: e.target.type === 'checkbox' ? e.target.checked : Number(e.target.value) }))
 
+  const minsToHHMM = (mins) => {
+    if (!mins || mins === 0) return '0h00'
+    return `${Math.floor(mins / 60)}h${String(mins % 60).padStart(2, '0')}`
+  }
+
   if (!policy) return <div className="animate-pulse h-32 glass rounded-2xl" />
 
   return (
@@ -1376,85 +1381,180 @@ function WorkTimeTab() {
 
       {/* ── Politique de temps de travail ────────────────────────────── */}
       <section className="glass rounded-2xl p-5">
-        <h2 className="font-semibold text-base mb-4">Politique de temps de travail</h2>
+        <h2 className="font-semibold text-base mb-1">Politique de temps de travail</h2>
+        <p className="text-xs text-slate-500 mb-5">
+          Ces paramètres s'appliquent à tous les collaborateurs soumis au timbrage.
+          Toute modification prend effet immédiatement.
+        </p>
         <form onSubmit={savePolicy} className="space-y-5">
 
-          {/* Verrou mensuel */}
-          <fieldset className="glass-soft rounded-xl p-4">
-            <legend className="text-sm font-semibold px-1 mb-2">Verrou mensuel</legend>
+          {/* ── Verrou mensuel ── */}
+          <fieldset className="glass-soft rounded-xl p-4 space-y-4">
+            <div className="flex items-center gap-2 mb-1">
+              <span className="text-base">🔒</span>
+              <legend className="text-sm font-semibold">Verrou mensuel</legend>
+            </div>
+            <p className="text-xs text-slate-500 -mt-2">
+              Après le jour de clôture, les pointages du mois précédent ne peuvent plus être modifiés
+              (sauf les rôles autorisés ci-dessous).
+            </p>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              <label className="block text-sm">
-                <span className="text-slate-600">Jour de clôture du mois</span>
-                <div className="flex items-center gap-2 mt-1">
+              <div>
+                <label className="block text-sm text-slate-600 mb-1">Jour de clôture du mois</label>
+                <div className="flex items-center gap-2">
                   <input
                     type="number" min="1" max="28"
-                    className="border rounded p-2 w-20"
+                    className="border rounded p-2 w-20 text-center font-mono"
                     value={policy.month_lock_day}
                     onChange={p('month_lock_day')}
                   />
-                  <span className="text-xs text-slate-500">du mois (ex: 10 → clôture le 10)</span>
+                  <span className="text-xs text-slate-500">
+                    → clôture le {policy.month_lock_day} de chaque mois
+                  </span>
                 </div>
-              </label>
-              <label className="block text-sm">
-                <span className="text-slate-600">Qui peut modifier un mois verrouillé</span>
+              </div>
+              <div>
+                <label className="block text-sm text-slate-600 mb-1">Qui peut modifier un mois verrouillé</label>
                 <select
-                  className="border rounded p-2 w-full mt-1"
+                  className="border rounded p-2 w-full"
                   value={policy.lock_bypass_roles}
-                  onChange={(e) => setPolicy({ ...policy, lock_bypass_roles: e.target.value })}
+                  onChange={(e) => { const v = e.target.value; setPolicy((prev) => ({ ...prev, lock_bypass_roles: v })) }}
                 >
-                  <option value="superuser">Superuser uniquement</option>
-                  <option value="manager">Manager et superuser</option>
-                  <option value="any">Tous les utilisateurs</option>
+                  <option value="superuser">🔐 Superuser uniquement</option>
+                  <option value="manager">👔 Manager et superuser</option>
+                  <option value="any">👥 Tous les utilisateurs</option>
                 </select>
-              </label>
+                <p className="text-[11px] text-slate-400 mt-1">
+                  Note : les utilisateurs avec le droit individuel «&nbsp;Mois verrouillés&nbsp;» peuvent toujours modifier.
+                </p>
+              </div>
             </div>
           </fieldset>
 
-          {/* Pauses */}
-          <fieldset className="glass-soft rounded-xl p-4">
-            <legend className="text-sm font-semibold px-1 mb-2">Pauses obligatoires</legend>
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-              <label className="block text-sm">
-                <span className="text-slate-600">Déclenchement après (min)</span>
-                <input type="number" min="0" className="border rounded p-2 w-full mt-1"
-                  value={policy.break_trigger_minutes} onChange={p('break_trigger_minutes')} />
-              </label>
-              <label className="block text-sm">
-                <span className="text-slate-600">Durée de la pause (min)</span>
-                <input type="number" min="0" className="border rounded p-2 w-full mt-1"
-                  value={policy.break_duration_minutes} onChange={p('break_duration_minutes')} />
-              </label>
-              <label className="block text-sm">
-                <span className="text-slate-600">Pause payée (min)</span>
-                <input type="number" min="0" className="border rounded p-2 w-full mt-1"
-                  value={policy.paid_break_minutes} onChange={p('paid_break_minutes')} />
-              </label>
-              <label className="flex items-center gap-2 text-sm mt-4">
-                <input type="checkbox" checked={policy.auto_deduct_break} onChange={p('auto_deduct_break')} />
-                Déduction automatique
-              </label>
+          {/* ── Pauses obligatoires ── */}
+          <fieldset className="glass-soft rounded-xl p-4 space-y-4">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <span className="text-base">☕</span>
+                <legend className="text-sm font-semibold">Pauses obligatoires</legend>
+              </div>
+              <button
+                type="button"
+                onClick={() => setPolicy((prev) => ({ ...prev, auto_deduct_break: !prev.auto_deduct_break }))}
+                className={`text-xs px-3 py-1 rounded-full font-medium border transition ${
+                  policy.auto_deduct_break
+                    ? 'bg-emerald-50 border-emerald-400 text-emerald-700'
+                    : 'bg-slate-50 border-slate-300 text-slate-500'
+                }`}
+              >
+                {policy.auto_deduct_break ? '● Déduction active' : '○ Déduction inactive'}
+              </button>
             </div>
-          </fieldset>
-
-          {/* Journée */}
-          <fieldset className="glass-soft rounded-xl p-4">
-            <legend className="text-sm font-semibold px-1 mb-2">Durées journalières</legend>
+            <p className="text-xs text-slate-500 -mt-2">
+              Quand la déduction est active, la pause est automatiquement soustraite du temps travaillé
+              dès que le seuil est atteint. La portion payée est conservée.
+            </p>
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-              <label className="block text-sm">
-                <span className="text-slate-600">Durée min (min)</span>
-                <input type="number" min="0" className="border rounded p-2 w-full mt-1"
-                  value={policy.daily_min_minutes} onChange={p('daily_min_minutes')} />
-              </label>
-              <label className="block text-sm">
-                <span className="text-slate-600">Durée max (min)</span>
-                <input type="number" min="0" className="border rounded p-2 w-full mt-1"
-                  value={policy.daily_max_minutes} onChange={p('daily_max_minutes')} />
-              </label>
-              <label className="block text-sm">
-                <span className="text-slate-600">Veilles de jours fériés (min, 0 = désactivé)</span>
-                <input type="number" min="0" className="border rounded p-2 w-full mt-1"
-                  value={policy.eve_holiday_reduced_minutes} onChange={p('eve_holiday_reduced_minutes')} />
-              </label>
+              <div>
+                <label className="block text-sm text-slate-600 mb-1">
+                  Déclenchement après
+                </label>
+                <div className="flex items-center gap-2">
+                  <input type="number" min="0" className="border rounded p-2 w-20 font-mono text-center"
+                    value={policy.break_trigger_minutes} onChange={p('break_trigger_minutes')} />
+                  <span className="text-xs text-slate-500">
+                    min ({minsToHHMM(policy.break_trigger_minutes)})
+                  </span>
+                </div>
+              </div>
+              <div>
+                <label className="block text-sm text-slate-600 mb-1">Durée de la pause</label>
+                <div className="flex items-center gap-2">
+                  <input type="number" min="0" className="border rounded p-2 w-20 font-mono text-center"
+                    value={policy.break_duration_minutes} onChange={p('break_duration_minutes')} />
+                  <span className="text-xs text-slate-500">min</span>
+                </div>
+              </div>
+              <div>
+                <label className="block text-sm text-slate-600 mb-1">Dont pause payée</label>
+                <div className="flex items-center gap-2">
+                  <input type="number" min="0" className="border rounded p-2 w-20 font-mono text-center"
+                    value={policy.paid_break_minutes} onChange={p('paid_break_minutes')} />
+                  <span className="text-xs text-slate-500">min</span>
+                </div>
+              </div>
+            </div>
+            {policy.auto_deduct_break && (
+              <p className="text-xs bg-emerald-50 text-emerald-800 rounded-lg px-3 py-2">
+                ● Au-delà de {minsToHHMM(policy.break_trigger_minutes)} travaillées,{' '}
+                {policy.break_duration_minutes - policy.paid_break_minutes} min seront déduites
+                automatiquement ({policy.break_duration_minutes} min pause −{' '}
+                {policy.paid_break_minutes} min payées).
+              </p>
+            )}
+          </fieldset>
+
+          {/* ── Durées journalières ── */}
+          <fieldset className="glass-soft rounded-xl p-4 space-y-4">
+            <div className="flex items-center gap-2 mb-1">
+              <span className="text-base">⏱</span>
+              <legend className="text-sm font-semibold">Durées journalières</legend>
+            </div>
+            <p className="text-xs text-slate-500 -mt-2">
+              Une alerte est affichée à l'employé lors de la sortie si le temps travaillé sort
+              des bornes. Mettre 0 pour désactiver chaque borne.
+            </p>
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+              <div>
+                <label className="block text-sm text-slate-600 mb-1">
+                  Minimum journalier
+                  {policy.daily_min_minutes === 0 && (
+                    <span className="ml-1 text-[10px] text-slate-400">(désactivé)</span>
+                  )}
+                </label>
+                <div className="flex items-center gap-2">
+                  <input type="number" min="0" className="border rounded p-2 w-20 font-mono text-center"
+                    value={policy.daily_min_minutes} onChange={p('daily_min_minutes')} />
+                  <span className="text-xs text-slate-500">
+                    {policy.daily_min_minutes > 0 ? `min (${minsToHHMM(policy.daily_min_minutes)})` : 'min'}
+                  </span>
+                </div>
+              </div>
+              <div>
+                <label className="block text-sm text-slate-600 mb-1">
+                  Maximum journalier
+                  {policy.daily_max_minutes === 0 && (
+                    <span className="ml-1 text-[10px] text-slate-400">(désactivé)</span>
+                  )}
+                </label>
+                <div className="flex items-center gap-2">
+                  <input type="number" min="0" className="border rounded p-2 w-20 font-mono text-center"
+                    value={policy.daily_max_minutes} onChange={p('daily_max_minutes')} />
+                  <span className="text-xs text-slate-500">
+                    {policy.daily_max_minutes > 0 ? `min (${minsToHHMM(policy.daily_max_minutes)})` : 'min'}
+                  </span>
+                </div>
+              </div>
+              <div>
+                <label className="block text-sm text-slate-600 mb-1">
+                  Cible veilles de jours fériés
+                  {policy.eve_holiday_reduced_minutes === 0 && (
+                    <span className="ml-1 text-[10px] text-slate-400">(désactivé)</span>
+                  )}
+                </label>
+                <div className="flex items-center gap-2">
+                  <input type="number" min="0" className="border rounded p-2 w-20 font-mono text-center"
+                    value={policy.eve_holiday_reduced_minutes} onChange={p('eve_holiday_reduced_minutes')} />
+                  <span className="text-xs text-slate-500">
+                    {policy.eve_holiday_reduced_minutes > 0
+                      ? `min (${minsToHHMM(policy.eve_holiday_reduced_minutes)})`
+                      : 'min'}
+                  </span>
+                </div>
+                <p className="text-[11px] text-slate-400 mt-1">
+                  Remplace la cible journalière la veille d'un férié (0 = cible normale).
+                </p>
+              </div>
             </div>
           </fieldset>
 

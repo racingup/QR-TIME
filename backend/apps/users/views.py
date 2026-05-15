@@ -435,11 +435,13 @@ class MeSummaryView(APIView):
                 "longitude": float(s.longitude),
                 "gps_radius_meters": s.gps_radius_meters,
             }
+        policy = WorkTimePolicy.load()
         return Response({
             "username": user.get_username(),
             "is_manager": user.is_manager,
             "is_mission_manager": user.is_mission_manager,
             "is_superuser": user.is_superuser,
+            "exempt_from_clocking": user.exempt_from_clocking,
             "weekly_target_hours": user.weekly_target_hours,
             "daily_target_hours": user.daily_target_hours,
             "overtime_balance_hours": user.overtime_balance,
@@ -453,6 +455,16 @@ class MeSummaryView(APIView):
                 "worked_minutes": worked_minutes,
                 "target_minutes": int(user.daily_target_hours * 60),
                 "has_open_session": open_session is not None,
+            },
+            "policy": {
+                "auto_deduct_break": policy.auto_deduct_break,
+                "break_trigger_minutes": policy.break_trigger_minutes,
+                "break_duration_minutes": policy.break_duration_minutes,
+                "paid_break_minutes": policy.paid_break_minutes,
+                "daily_min_minutes": policy.daily_min_minutes,
+                "daily_max_minutes": policy.daily_max_minutes,
+                "eve_holiday_reduced_minutes": policy.eve_holiday_reduced_minutes,
+                "month_lock_day": policy.month_lock_day,
             },
         })
 

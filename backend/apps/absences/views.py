@@ -196,6 +196,26 @@ class AbsenceUpdateView(APIView):
         return Response(ser.data)
 
 
+class AbsenceCancelView(APIView):
+    """POST /api/absences/{id}/cancel/ — employee cancels their own PENDING request."""
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request, pk):
+        try:
+            absence = AbsenceRequest.objects.get(pk=pk, user=request.user)
+        except AbsenceRequest.DoesNotExist:
+            return Response({"error": "NOT_FOUND"}, status=status.HTTP_404_NOT_FOUND)
+        if absence.status != AbsenceRequest.Status.PENDING:
+            return Response(
+                {"error": "NOT_CANCELLABLE", "detail": "Seules les demandes en attente peuvent être annulées."},
+                status=status.HTTP_409_CONFLICT,
+            )
+        absence.status = AbsenceRequest.Status.REJECTED
+        absence.manager_comment = "Annulé par l'employé."
+        absence.save(update_fields=["status", "manager_comment"])
+        return Response({"status": "cancelled"})
+
+
 # ── Helper functions ──────────────────────────────────────────────────────────
 
 def _recredite_vacation_for_sick_overlap(sick_absence: AbsenceRequest) -> None:
