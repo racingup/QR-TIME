@@ -1,5 +1,5 @@
 """Tests for apps/clocking/tasks.py."""
-from datetime import timedelta
+from datetime import datetime, timedelta
 
 from django.test import TestCase
 from django.utils import timezone
@@ -13,8 +13,11 @@ class DetectForgottenClockoutsTests(TestCase):
     def setUp(self):
         self.alice = UserProfile.objects.create_user(username="alice", password="x")
         self.bob = UserProfile.objects.create_user(username="bob", password="x")
-        self.now = timezone.now()
-        self.morning = self.now.replace(hour=8, minute=30, second=0, microsecond=0)
+        tz = timezone.get_current_timezone()
+        today = timezone.localdate()
+        self.morning = timezone.make_aware(
+            datetime(today.year, today.month, today.day, 8, 30, 0), tz
+        )
 
     def _open_session(self, user) -> ClockSession:
         return ClockSession.objects.create(
@@ -50,7 +53,7 @@ class DetectForgottenClockoutsTests(TestCase):
 
     def test_yesterday_open_session_not_picked_up_today(self):
         # An open session from yesterday is out of scope for today's run.
-        yesterday = self.now - timedelta(days=1)
+        yesterday = self.morning - timedelta(days=1)
         ClockSession.objects.create(
             user=self.alice, clock_in=yesterday, clock_in_rounded=yesterday,
         )
