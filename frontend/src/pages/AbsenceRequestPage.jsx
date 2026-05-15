@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import * as absencesApi from '../api/absences'
+import * as meApi from '../api/me'
 
 /**
  * Half-day flags semantics (must match backend AbsenceRequest.days_count) :
@@ -38,6 +39,9 @@ export default function AbsenceRequestPage({ presetKind }) {
   const [submitting, setSubmitting] = useState(false)
   const [created, setCreated] = useState(null)
   const [error, setError] = useState(null)
+  const [summary, setSummary] = useState(null)
+
+  useEffect(() => { meApi.summary().then(setSummary).catch(() => {}) }, [])
 
   const isSingleDay =
     form.date_start && form.date_end && form.date_start === form.date_end
@@ -97,6 +101,16 @@ export default function AbsenceRequestPage({ presetKind }) {
   return (
     <form onSubmit={handleSubmit} className="glass rounded-3xl p-5 space-y-4">
       <h1 className="text-lg font-semibold tracking-tight">Demande d'absence</h1>
+
+      {/* Solde congés affiché quand type = VACATION */}
+      {form.absence_type === 'VACATION' && summary && (
+        <div className="glass-soft rounded-xl px-4 py-2.5 flex items-center justify-between">
+          <span className="text-sm text-slate-600">Solde congés disponible</span>
+          <span className={`text-base font-semibold ${Number(summary.vacation_remaining) > 0 ? 'text-sky-700' : 'text-rose-600'}`}>
+            {Number(summary.vacation_remaining).toFixed(1)} jour{Number(summary.vacation_remaining) !== 1 ? 's' : ''}
+          </span>
+        </div>
+      )}
 
       <label className="block text-sm">
         <span className="text-slate-600">Type</span>

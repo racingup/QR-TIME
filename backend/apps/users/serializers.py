@@ -5,10 +5,12 @@ from rest_framework import serializers
 
 from apps.users.models import (
     CompanySettings,
+    MajorationRule,
     Site,
     SiteHoliday,
     ToleranceConfig,
     UserProfile,
+    WorkTimePolicy,
 )
 
 
@@ -102,6 +104,44 @@ class PublicBrandingSerializer(serializers.ModelSerializer):
         read_only_fields = fields
 
 
+class WorkTimePolicySerializer(serializers.ModelSerializer):
+    """Serializer pour la politique de temps de travail (singleton admin)."""
+
+    class Meta:
+        model = WorkTimePolicy
+        fields = [
+            "month_lock_day", "lock_bypass_roles",
+            "break_trigger_minutes", "break_duration_minutes",
+            "paid_break_minutes", "auto_deduct_break",
+            "daily_min_minutes", "daily_max_minutes",
+            "eve_holiday_reduced_minutes",
+        ]
+
+
+class MajorationRuleSerializer(serializers.ModelSerializer):
+    """Serializer pour les règles de majoration horaire."""
+
+    threshold_display = serializers.SerializerMethodField(read_only=True)
+    rate_display = serializers.SerializerMethodField(read_only=True)
+
+    class Meta:
+        model = MajorationRule
+        fields = [
+            "id", "description", "day_type", "threshold_minutes",
+            "rate", "is_active", "order",
+            "threshold_display", "rate_display",
+        ]
+        read_only_fields = ["id", "threshold_display", "rate_display"]
+
+    def get_threshold_display(self, obj) -> str:
+        h, m = divmod(obj.threshold_minutes, 60)
+        return f"{h}h{m:02d}"
+
+    def get_rate_display(self, obj) -> str:
+        pct = int((float(obj.rate) - 1) * 100)
+        return f"+{pct}%"
+
+
 class AdminUserSerializer(serializers.ModelSerializer):
     """Manager-facing user editor."""
 
@@ -128,6 +168,8 @@ class AdminUserSerializer(serializers.ModelSerializer):
             "home_site_latitude", "home_site_longitude",
             # Domicile + trajet standard (Art. 13 al. 3 OLT 1).
             "home_lat", "home_lon", "standard_commute_minutes",
+            # Règles de travail
+            "exempt_from_clocking", "can_edit_locked_months", "manager",
         ]
         # username is editable (superuser can rename collaborators).
         read_only_fields = ["id", "vacation_used", "overtime_balance", "is_superuser", "is_staff"]

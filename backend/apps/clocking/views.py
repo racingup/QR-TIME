@@ -373,8 +373,10 @@ class ClockSessionUpdateView(APIView):
     }
 
     def patch(self, request: Request, pk: int) -> Response:
+        from django.core.exceptions import PermissionDenied
         from django.utils.dateparse import parse_datetime
         from services.audit import can_manager_act_on
+        from apps.users.models import WorkTimePolicy
         session = generics.get_object_or_404(ClockSession, pk=pk)
         if not can_manager_act_on(request.user, session.user_id):
             # Couvre : auto-édition (manager → ses propres pointages),
@@ -396,6 +398,27 @@ class ClockSessionUpdateView(APIView):
                 },
                 status=status.HTTP_400_BAD_REQUEST,
             )
+        # ── Verrou mensuel (configurable) ────────────────────────────────
+        if not (request.user.is_superuser or getattr(request.user, "can_edit_locked_months", False)):
+            policy = WorkTimePolicy.load()
+            today = timezone.localdate()
+            if today.day > policy.month_lock_day:
+                cutoff = today.replace(day=1)
+                if session.clock_in.date() < cutoff:
+                    bypass_ok = (
+                        policy.lock_bypass_roles == "any"
+                        or (policy.lock_bypass_roles == "manager" and request.user.is_manager)
+                    )
+                    if not bypass_ok:
+                        return Response(
+                            {"error": "MONTH_LOCKED",
+                             "detail": f"Les modifications sont bloquées après le {policy.month_lock_day} du mois."},
+                            status=status.HTTP_403_FORBIDDEN,
+                        )
+
+        # ── Track justification submission for email notification ────────
+        had_justification_before = bool(session.justification)
+
         for key, value in request.data.items():
             if key not in self.ALLOWED_FIELDS:
                 continue
@@ -403,6 +426,11 @@ class ClockSessionUpdateView(APIView):
                 value = parse_datetime(value) if value else None
             setattr(session, key, value)
         session.save()
+
+        # Notify managers when a justification is submitted for the first time.
+        if not had_justification_before and session.justification:
+            _notify_managers_justification(session, request.user)
+
         return Response(ClockSessionSerializer(session).data)
 
 
@@ -1004,3 +1032,38 @@ class RegularizeSessionView(APIView):
             session=session, kind=Alert.Kind.FORGOTTEN_CLOCKOUT, resolved_at__isnull=True,
         ).update(resolved_at=timezone.now())
         return Response(ClockSessionSerializer(session).data)
+
+
+# ── Helper: email managers when a justification is submitted ─────────────────
+
+def _notify_managers_justification(session: ClockSession, actor) -> None:
+    """Email active managers when a justification is submitted on a session."""
+    from django.conf import settings
+    from django.core.mail import send_mail
+    from apps.users.models import UserProfile
+
+    employee = session.user
+    date_str = session.clock_in.strftime("%d/%m/%Y")
+
+    mgr = getattr(employee, "manager", None)
+    if mgr and mgr.email:
+        recipients = [mgr.email]
+    else:
+        recipients = list(
+            UserProfile.objects.filter(is_manager=True, is_active=True)
+            .exclude(email="")
+            .values_list("email", flat=True)[:20]
+        )
+    if recipients:
+        send_mail(
+            subject=f"[QR-TIME] Justification à valider — {employee.get_username()}",
+            message=(
+                f"{employee.get_username()} a soumis une justification pour "
+                f"la session du {date_str} :\n\n"
+                f"« {session.justification} »\n\n"
+                f"Connectez-vous à QR-TIME pour valider ou refuser."
+            ),
+            from_email=settings.DEFAULT_FROM_EMAIL,
+            recipient_list=recipients,
+            fail_silently=True,
+        )

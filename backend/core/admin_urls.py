@@ -9,9 +9,12 @@ from apps.users.views import (
     AdminDeletionRequestListView,
     AdminUserViewSet,
     CompanySettingsAdminView,
+    MajorationRuleDetailView,
+    MajorationRuleListView,
     SiteHolidayViewSet,
     SiteViewSet,
     ToleranceConfigView,
+    WorkTimePolicyView,
 )
 
 router = DefaultRouter()
@@ -36,4 +39,7 @@ urlpatterns = [
         "deletion-requests/<int:pk>/",
         AdminDeletionRequestDecisionView.as_view(), name="admin-deletion-request-decide",
     ),
+    path("work-time-policy/", WorkTimePolicyView.as_view(), name="admin-work-time-policy"),
+    path("majoration-rules/", MajorationRuleListView.as_view(), name="admin-majoration-rules"),
+    path("majoration-rules/<int:pk>/", MajorationRuleDetailView.as_view(), name="admin-majoration-rule-detail"),
 ]

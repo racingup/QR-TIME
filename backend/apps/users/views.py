@@ -17,20 +17,24 @@ from apps.users.models import (
     CompanySettings,
     ConsentLog,
     DataDeletionRequest,
+    MajorationRule,
     Site,
     SiteHoliday,
     SiteQRAudit,
     ToleranceConfig,
     UserProfile,
+    WorkTimePolicy,
 )
 from apps.users.permissions import IsManager, IsSuperUser
 from apps.users.serializers import (
     AdminUserSerializer,
     CompanySettingsSerializer,
+    MajorationRuleSerializer,
     PublicBrandingSerializer,
     SiteHolidaySerializer,
     SiteSerializer,
     ToleranceConfigSerializer,
+    WorkTimePolicySerializer,
 )
 from rest_framework.permissions import AllowAny
 
@@ -442,6 +446,8 @@ class MeSummaryView(APIView):
             "vacation_quota": user.vacation_quota,
             "vacation_used": user.vacation_used,
             "vacation_remaining": Decimal(user.vacation_quota) - user.vacation_used,
+            "pending_absences_count": _count_pending_absences(user),
+            "pending_missions_count": _count_pending_missions(user),
             "home_site": home_site,
             "today": {
                 "worked_minutes": worked_minutes,
@@ -681,3 +687,62 @@ class AdminDeletionRequestDecisionView(APIView):
 
         req.refresh_from_db()
         return Response(_serialize_deletion_request(req))
+
+
+# ── Helpers ─────────────────────────────────────────────────────────────────
+
+def _count_pending_absences(user: UserProfile) -> int:
+    try:
+        from apps.absences.models import AbsenceRequest
+        return AbsenceRequest.objects.filter(user=user, status="PENDING").count()
+    except Exception:
+        return 0
+
+
+def _count_pending_missions(user: UserProfile) -> int:
+    try:
+        from apps.clocking.models import Mission
+        return Mission.objects.filter(user=user, status="PENDING").count()
+    except Exception:
+        return 0
+
+
+# ── WorkTimePolicy & MajorationRule admin views ──────────────────────────────
+
+class WorkTimePolicyView(APIView):
+    """GET / PUT / PATCH /api/admin/work-time-policy/ — singleton (superuser only)."""
+
+    permission_classes = [IsSuperUser]
+
+    def get(self, request):
+        return Response(WorkTimePolicySerializer(WorkTimePolicy.load()).data)
+
+    def put(self, request):
+        policy = WorkTimePolicy.load()
+        ser = WorkTimePolicySerializer(policy, data=request.data, partial=False)
+        ser.is_valid(raise_exception=True)
+        ser.save()
+        return Response(ser.data)
+
+    def patch(self, request):
+        policy = WorkTimePolicy.load()
+        ser = WorkTimePolicySerializer(policy, data=request.data, partial=True)
+        ser.is_valid(raise_exception=True)
+        ser.save()
+        return Response(ser.data)
+
+
+class MajorationRuleListView(generics.ListCreateAPIView):
+    """GET /api/admin/majoration-rules/ + POST (superuser only)."""
+
+    queryset = MajorationRule.objects.all()
+    serializer_class = MajorationRuleSerializer
+    permission_classes = [IsSuperUser]
+
+
+class MajorationRuleDetailView(generics.RetrieveUpdateDestroyAPIView):
+    """GET / PUT / PATCH / DELETE /api/admin/majoration-rules/{id}/ (superuser only)."""
+
+    queryset = MajorationRule.objects.all()
+    serializer_class = MajorationRuleSerializer
+    permission_classes = [IsSuperUser]

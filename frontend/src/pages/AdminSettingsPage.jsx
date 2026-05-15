@@ -12,6 +12,7 @@ export default function AdminSettingsPage() {
     { id: 'sites', label: 'Sites' },
     { id: 'slots', label: 'Plages fixes' },
     { id: 'tolerance', label: 'Arrondis' },
+    ...(canEditUsers ? [{ id: 'work-time', label: 'Règles de travail' }] : []),
     ...(canEditUsers ? [{ id: 'users', label: 'Utilisateurs' }] : []),
     ...(canEditUsers ? [{ id: 'company', label: 'Entreprise' }] : []),
     ...(canEditUsers ? [{ id: 'deletion-requests', label: 'Demandes RGPD' }] : []),
@@ -42,6 +43,7 @@ export default function AdminSettingsPage() {
       {tab === 'sites' && <SitesTab />}
       {tab === 'slots' && <SlotsTab />}
       {tab === 'tolerance' && <ToleranceTab />}
+      {tab === 'work-time' && canEditUsers && <WorkTimeTab />}
       {tab === 'users' && canEditUsers && <UsersTab />}
       {tab === 'company' && canEditUsers && <CompanyTab />}
       {tab === 'deletion-requests' && canEditUsers && <DeletionRequestsTab />}
@@ -964,6 +966,7 @@ function UsersTab() {
   const [form, setForm] = useState({
     username: '', password: '', weekly_target_hours: 42, vacation_quota: 25,
     is_manager: false, is_mission_manager: false, home_site: '',
+    exempt_from_clocking: false, can_edit_locked_months: false, manager: '',
   })
   // Modal d'édition du domicile sur carte (null si fermée).
   const [homeEditing, setHomeEditing] = useState(null)
@@ -995,6 +998,7 @@ function UsersTab() {
     setForm({
       username: '', password: '', weekly_target_hours: 42, vacation_quota: 25,
       is_manager: false, is_mission_manager: false, home_site: '',
+      exempt_from_clocking: false, can_edit_locked_months: false, manager: '',
     })
     refresh()
   }
@@ -1032,6 +1036,16 @@ function UsersTab() {
                  onChange={(e) => setForm({ ...form, is_mission_manager: e.target.checked })} />
           Mission Manager
         </label>
+        <label className="col-span-3 flex items-center gap-2 text-sm">
+          <input type="checkbox" checked={form.exempt_from_clocking}
+                 onChange={(e) => setForm({ ...form, exempt_from_clocking: e.target.checked })} />
+          Non-badgeur
+        </label>
+        <label className="col-span-3 flex items-center gap-2 text-sm">
+          <input type="checkbox" checked={form.can_edit_locked_months}
+                 onChange={(e) => setForm({ ...form, can_edit_locked_months: e.target.checked })} />
+          Peut modifier mois verrouillés
+        </label>
         <button className="col-span-6 bg-blue-600 text-white py-2 rounded">
           Créer un collaborateur
         </button>
@@ -1050,8 +1064,11 @@ function UsersTab() {
             <th className="p-2" title="Trajet domicile → site, ALLER simple, en minutes">🚗 Trajet</th>
             <th className="p-2">Heures/sem</th>
             <th className="p-2">Quota congés</th>
+            <th className="p-2">Manager direct</th>
             <th className="p-2">Manager</th>
             <th className="p-2">Mission Mgr</th>
+            <th className="p-2" title="Non soumis au timbrage">Non-badgeur</th>
+            <th className="p-2" title="Peut modifier les mois verrouillés">🔓 Mois</th>
             <th className="p-2"></th>
           </tr>
         </thead>
@@ -1143,6 +1160,20 @@ function UsersTab() {
                 />
               </td>
               <td className="p-2">
+                {/* Manager direct (pour les notifications email) */}
+                <select
+                  className="border rounded p-1 text-xs max-w-[120px]"
+                  value={u.manager || ''}
+                  onChange={(e) => updateField(u.id, 'manager', e.target.value ? Number(e.target.value) : null)}
+                  disabled={isAnonymized}
+                >
+                  <option value="">—</option>
+                  {users.filter((x) => x.is_manager && x.id !== u.id).map((m) => (
+                    <option key={m.id} value={m.id}>{m.username}</option>
+                  ))}
+                </select>
+              </td>
+              <td className="p-2">
                 <input
                   type="checkbox"
                   defaultChecked={u.is_manager}
@@ -1154,6 +1185,22 @@ function UsersTab() {
                   type="checkbox"
                   defaultChecked={u.is_mission_manager}
                   onChange={(e) => updateField(u.id, 'is_mission_manager', e.target.checked)}
+                />
+              </td>
+              <td className="p-2">
+                <input
+                  type="checkbox"
+                  defaultChecked={u.exempt_from_clocking}
+                  onChange={(e) => updateField(u.id, 'exempt_from_clocking', e.target.checked)}
+                  disabled={isAnonymized}
+                />
+              </td>
+              <td className="p-2">
+                <input
+                  type="checkbox"
+                  defaultChecked={u.can_edit_locked_months}
+                  onChange={(e) => updateField(u.id, 'can_edit_locked_months', e.target.checked)}
+                  disabled={isAnonymized}
                 />
               </td>
               <td className="p-2">
@@ -1194,6 +1241,239 @@ function UsersTab() {
     </div>
   )
 }
+
+// ── WorkTimeTab — Règles de travail paramétrables ─────────────────────────
+
+function WorkTimeTab() {
+  const [policy, setPolicy] = useState(null)
+  const [rules, setRules] = useState([])
+  const [saving, setSaving] = useState(false)
+  const [ruleForm, setRuleForm] = useState({
+    description: '', day_type: 'ALL', threshold_minutes: 510, rate: '1.25', order: 0,
+  })
+  const [err, setErr] = useState(null)
+  const [ok, setOk] = useState(null)
+
+  const refresh = () => {
+    adminApi.workTimePolicy.get().then(setPolicy)
+    adminApi.majorationRules.list().then((d) => setRules(d.results || d))
+  }
+  useEffect(() => { refresh() }, [])
+
+  const savePolicy = async (e) => {
+    e.preventDefault()
+    setSaving(true); setErr(null); setOk(null)
+    try {
+      const updated = await adminApi.workTimePolicy.update(policy)
+      setPolicy(updated)
+      setOk('Politique enregistrée.')
+    } catch (e) {
+      setErr(e?.response?.data ? JSON.stringify(e.response.data) : e.message)
+    } finally { setSaving(false) }
+  }
+
+  const createRule = async (e) => {
+    e.preventDefault()
+    await adminApi.majorationRules.create({
+      ...ruleForm,
+      threshold_minutes: Number(ruleForm.threshold_minutes),
+      rate: String(ruleForm.rate),
+      order: Number(ruleForm.order),
+    })
+    setRuleForm({ description: '', day_type: 'ALL', threshold_minutes: 510, rate: '1.25', order: 0 })
+    refresh()
+  }
+
+  const toggleRule = async (rule) => {
+    await adminApi.majorationRules.update(rule.id, { is_active: !rule.is_active })
+    refresh()
+  }
+
+  const deleteRule = async (rule) => {
+    if (!window.confirm(`Supprimer la règle "${rule.description}" ?`)) return
+    await adminApi.majorationRules.remove(rule.id)
+    refresh()
+  }
+
+  const p = (field) => (e) => setPolicy((prev) => ({ ...prev, [field]: e.target.type === 'checkbox' ? e.target.checked : Number(e.target.value) }))
+
+  if (!policy) return <div className="animate-pulse h-32 glass rounded-2xl" />
+
+  return (
+    <div className="space-y-8">
+
+      {/* ── Règles de majoration ─────────────────────────────────────── */}
+      <section className="glass rounded-2xl p-5">
+        <h2 className="font-semibold text-base mb-4">Règles de majoration horaire</h2>
+        <p className="text-xs text-slate-500 mb-4">
+          Les heures travaillées au-delà du seuil configuré sont pondérées par le taux de majoration.
+          Plusieurs règles peuvent coexister (types de jours différents).
+        </p>
+
+        {/* Existing rules */}
+        <div className="space-y-2 mb-4">
+          {rules.length === 0 && <p className="text-sm text-slate-400">Aucune règle configurée.</p>}
+          {rules.map((r) => (
+            <div key={r.id} className={`glass-soft rounded-xl p-3 flex items-center gap-3 ${!r.is_active ? 'opacity-50' : ''}`}>
+              <div className="flex-1">
+                <p className="text-sm font-medium">{r.description}</p>
+                <p className="text-xs text-slate-500">
+                  {r.get_day_type_display ?? r.day_type} · au-delà de {r.threshold_display} · {r.rate_display}
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => toggleRule(r)}
+                className={`text-xs px-2 py-1 rounded border ${r.is_active ? 'border-emerald-400 text-emerald-700' : 'border-slate-300 text-slate-500'}`}
+              >
+                {r.is_active ? 'Actif' : 'Inactif'}
+              </button>
+              <button type="button" onClick={() => deleteRule(r)} className="text-xs text-rose-600 hover:bg-rose-50 px-2 py-1 rounded">✕</button>
+            </div>
+          ))}
+        </div>
+
+        {/* New rule form */}
+        <form onSubmit={createRule} className="grid grid-cols-2 sm:grid-cols-6 gap-2 items-end bg-slate-50 border rounded-xl p-3">
+          <input
+            className="border rounded p-2 col-span-2"
+            placeholder="Libellé (ex: Heures sup.)"
+            value={ruleForm.description}
+            onChange={(e) => setRuleForm({ ...ruleForm, description: e.target.value })}
+            required
+          />
+          <select
+            className="border rounded p-2"
+            value={ruleForm.day_type}
+            onChange={(e) => setRuleForm({ ...ruleForm, day_type: e.target.value })}
+          >
+            <option value="ALL">Tous les jours</option>
+            <option value="WEEKDAY">Jours ouvrés</option>
+            <option value="WEEKEND">Weekend</option>
+            <option value="HOLIDAY">Jours fériés</option>
+          </select>
+          <div className="flex items-center gap-1">
+            <input
+              type="number" min="0" max="1440" className="border rounded p-2 w-20"
+              placeholder="min" title="Seuil en minutes (ex: 510 = 8h30)"
+              value={ruleForm.threshold_minutes}
+              onChange={(e) => setRuleForm({ ...ruleForm, threshold_minutes: e.target.value })}
+            />
+            <span className="text-xs text-slate-500">min</span>
+          </div>
+          <div className="flex items-center gap-1">
+            <input
+              type="number" min="1" max="3" step="0.05" className="border rounded p-2 w-20"
+              placeholder="1.25" title="Taux (ex: 1.25 = +25%)"
+              value={ruleForm.rate}
+              onChange={(e) => setRuleForm({ ...ruleForm, rate: e.target.value })}
+            />
+            <span className="text-xs text-slate-500">×</span>
+          </div>
+          <button className="bg-slate-900 text-white py-2 px-3 rounded text-sm">+ Ajouter</button>
+        </form>
+      </section>
+
+      {/* ── Politique de temps de travail ────────────────────────────── */}
+      <section className="glass rounded-2xl p-5">
+        <h2 className="font-semibold text-base mb-4">Politique de temps de travail</h2>
+        <form onSubmit={savePolicy} className="space-y-5">
+
+          {/* Verrou mensuel */}
+          <fieldset className="glass-soft rounded-xl p-4">
+            <legend className="text-sm font-semibold px-1 mb-2">Verrou mensuel</legend>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <label className="block text-sm">
+                <span className="text-slate-600">Jour de clôture du mois</span>
+                <div className="flex items-center gap-2 mt-1">
+                  <input
+                    type="number" min="1" max="28"
+                    className="border rounded p-2 w-20"
+                    value={policy.month_lock_day}
+                    onChange={p('month_lock_day')}
+                  />
+                  <span className="text-xs text-slate-500">du mois (ex: 10 → clôture le 10)</span>
+                </div>
+              </label>
+              <label className="block text-sm">
+                <span className="text-slate-600">Qui peut modifier un mois verrouillé</span>
+                <select
+                  className="border rounded p-2 w-full mt-1"
+                  value={policy.lock_bypass_roles}
+                  onChange={(e) => setPolicy({ ...policy, lock_bypass_roles: e.target.value })}
+                >
+                  <option value="superuser">Superuser uniquement</option>
+                  <option value="manager">Manager et superuser</option>
+                  <option value="any">Tous les utilisateurs</option>
+                </select>
+              </label>
+            </div>
+          </fieldset>
+
+          {/* Pauses */}
+          <fieldset className="glass-soft rounded-xl p-4">
+            <legend className="text-sm font-semibold px-1 mb-2">Pauses obligatoires</legend>
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+              <label className="block text-sm">
+                <span className="text-slate-600">Déclenchement après (min)</span>
+                <input type="number" min="0" className="border rounded p-2 w-full mt-1"
+                  value={policy.break_trigger_minutes} onChange={p('break_trigger_minutes')} />
+              </label>
+              <label className="block text-sm">
+                <span className="text-slate-600">Durée de la pause (min)</span>
+                <input type="number" min="0" className="border rounded p-2 w-full mt-1"
+                  value={policy.break_duration_minutes} onChange={p('break_duration_minutes')} />
+              </label>
+              <label className="block text-sm">
+                <span className="text-slate-600">Pause payée (min)</span>
+                <input type="number" min="0" className="border rounded p-2 w-full mt-1"
+                  value={policy.paid_break_minutes} onChange={p('paid_break_minutes')} />
+              </label>
+              <label className="flex items-center gap-2 text-sm mt-4">
+                <input type="checkbox" checked={policy.auto_deduct_break} onChange={p('auto_deduct_break')} />
+                Déduction automatique
+              </label>
+            </div>
+          </fieldset>
+
+          {/* Journée */}
+          <fieldset className="glass-soft rounded-xl p-4">
+            <legend className="text-sm font-semibold px-1 mb-2">Durées journalières</legend>
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+              <label className="block text-sm">
+                <span className="text-slate-600">Durée min (min)</span>
+                <input type="number" min="0" className="border rounded p-2 w-full mt-1"
+                  value={policy.daily_min_minutes} onChange={p('daily_min_minutes')} />
+              </label>
+              <label className="block text-sm">
+                <span className="text-slate-600">Durée max (min)</span>
+                <input type="number" min="0" className="border rounded p-2 w-full mt-1"
+                  value={policy.daily_max_minutes} onChange={p('daily_max_minutes')} />
+              </label>
+              <label className="block text-sm">
+                <span className="text-slate-600">Veilles de jours fériés (min, 0 = désactivé)</span>
+                <input type="number" min="0" className="border rounded p-2 w-full mt-1"
+                  value={policy.eve_holiday_reduced_minutes} onChange={p('eve_holiday_reduced_minutes')} />
+              </label>
+            </div>
+          </fieldset>
+
+          {err && <p className="text-xs text-rose-700 bg-rose-50 rounded px-3 py-2">⚠ {err}</p>}
+          {ok && <p className="text-xs text-emerald-700 bg-emerald-50 rounded px-3 py-2">✓ {ok}</p>}
+
+          <button
+            type="submit"
+            disabled={saving}
+            className="press w-full bg-slate-900 text-white py-2.5 rounded-xl font-medium disabled:opacity-50"
+          >
+            {saving ? 'Enregistrement…' : 'Enregistrer la politique'}
+          </button>
+        </form>
+      </section>
+    </div>
+  )
+}
+
 
 function HomeAddressModal({ user, siteCenter, onClose, onSave, onClear }) {
   // Important : on stocke et envoie des valeurs ARRONDIES à 6 décimales.

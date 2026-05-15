@@ -45,6 +45,18 @@ export const company = {
   update: (data) => api.put('/admin/company-settings/', data).then((r) => r.data),
 }
 
+export const workTimePolicy = {
+  get: () => api.get('/admin/work-time-policy/').then((r) => r.data),
+  update: (data) => api.patch('/admin/work-time-policy/', data).then((r) => r.data),
+}
+
+export const majorationRules = {
+  list: () => api.get('/admin/majoration-rules/').then((r) => r.data),
+  create: (data) => api.post('/admin/majoration-rules/', data).then((r) => r.data),
+  update: (id, data) => api.patch(`/admin/majoration-rules/${id}/`, data).then((r) => r.data),
+  remove: (id) => api.delete(`/admin/majoration-rules/${id}/`).then((r) => r.data),
+}
+
 // Workflow LPD : inbox des demandes de suppression compte (côté admin/RH).
 export const deletionRequests = {
   list: (status) =>

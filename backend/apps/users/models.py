@@ -62,6 +62,23 @@ class UserProfile(AbstractUser):
         ),
     )
 
+    # ── Règles de travail ─────────────────────────────────────────────────
+    exempt_from_clocking = models.BooleanField(
+        default=False,
+        help_text="Non soumis au timbrage (planification = preuve de présence).",
+    )
+    can_edit_locked_months = models.BooleanField(
+        default=False,
+        help_text="Autorisé à modifier des pointages sur des mois verrouillés.",
+    )
+    manager = models.ForeignKey(
+        "self",
+        on_delete=models.SET_NULL,
+        null=True, blank=True,
+        related_name="reports",
+        help_text="Manager direct (utilisé pour les notifications email).",
+    )
+
     @property
     def daily_target_hours(self) -> Decimal:
         """Heures théoriques par jour ouvré (semaine de 5 jours)."""
@@ -120,6 +137,108 @@ class ToleranceConfig(models.Model):
     def load(cls) -> "ToleranceConfig":
         obj, _ = cls.objects.get_or_create(pk=1)
         return obj
+
+
+class WorkTimePolicy(models.Model):
+    """Politique de temps de travail paramétrable (singleton).
+
+    Tous les seuils et règles sont configurables par l'admin sans déploiement.
+    """
+
+    LOCK_BYPASS_CHOICES = [
+        ("superuser", "Superuser uniquement"),
+        ("manager", "Manager et superuser"),
+        ("any", "Tous les utilisateurs"),
+    ]
+
+    # ── Verrou mensuel ────────────────────────────────────────────────────
+    month_lock_day = models.PositiveSmallIntegerField(
+        default=10,
+        help_text="Après ce jour du mois, le mois précédent est verrouillé.",
+    )
+    lock_bypass_roles = models.CharField(
+        max_length=20, choices=LOCK_BYPASS_CHOICES, default="superuser",
+        help_text="Rôles autorisés à modifier un mois verrouillé.",
+    )
+
+    # ── Pauses obligatoires ───────────────────────────────────────────────
+    break_trigger_minutes = models.PositiveIntegerField(
+        default=360,
+        help_text="Durée travaillée (min) déclenchant la pause obligatoire (360 = 6h).",
+    )
+    break_duration_minutes = models.PositiveIntegerField(
+        default=30, help_text="Durée de la pause obligatoire en minutes.",
+    )
+    paid_break_minutes = models.PositiveIntegerField(
+        default=0,
+        help_text="Minutes de pause considérées comme travaillées (pause payée).",
+    )
+    auto_deduct_break = models.BooleanField(
+        default=False,
+        help_text="Déduire automatiquement la pause du temps travaillé.",
+    )
+
+    # ── Journée ───────────────────────────────────────────────────────────
+    daily_min_minutes = models.PositiveIntegerField(
+        default=0, help_text="Durée minimale journalière en minutes.",
+    )
+    daily_max_minutes = models.PositiveIntegerField(
+        default=630, help_text="Durée maximale journalière en minutes (630 = 10h30).",
+    )
+    eve_holiday_reduced_minutes = models.PositiveIntegerField(
+        default=0,
+        help_text="Durée réduite les veilles de jours fériés (0 = désactivé).",
+    )
+
+    class Meta:
+        verbose_name = "Politique de temps de travail"
+        verbose_name_plural = "Politique de temps de travail"
+
+    def save(self, *args, **kwargs):
+        self.pk = 1
+        super().save(*args, **kwargs)
+
+    @classmethod
+    def load(cls) -> "WorkTimePolicy":
+        obj, _ = cls.objects.get_or_create(pk=1)
+        return obj
+
+
+class MajorationRule(models.Model):
+    """Règle de majoration horaire paramétrable par l'admin.
+
+    Plusieurs règles peuvent coexister (ex : +25% au-delà de 8h30 en semaine,
+    +50% le weekend). Triées par `order` puis `threshold_minutes`.
+    """
+
+    class DayType(models.TextChoices):
+        ALL     = "ALL",     "Tous les jours"
+        WEEKDAY = "WEEKDAY", "Jours ouvrés (lun–ven)"
+        WEEKEND = "WEEKEND", "Weekend (sam–dim)"
+        HOLIDAY = "HOLIDAY", "Jours fériés"
+
+    description       = models.CharField(max_length=100, help_text="Libellé (ex: Heures supplémentaires)")
+    day_type          = models.CharField(max_length=10, choices=DayType.choices, default=DayType.ALL)
+    threshold_minutes = models.PositiveIntegerField(
+        default=510, help_text="Seuil de déclenchement en minutes (ex: 510 = 8h30).",
+    )
+    rate              = models.DecimalField(
+        max_digits=4, decimal_places=2, default=Decimal("1.25"),
+        help_text="Taux de majoration (ex: 1.25 = 125%).",
+    )
+    is_active         = models.BooleanField(default=True)
+    order             = models.PositiveSmallIntegerField(
+        default=0, help_text="Ordre d'application (plus petit = prioritaire).",
+    )
+
+    class Meta:
+        ordering = ["order", "threshold_minutes"]
+        verbose_name = "Règle de majoration"
+        verbose_name_plural = "Règles de majoration"
+
+    def __str__(self) -> str:
+        h, m = divmod(self.threshold_minutes, 60)
+        return f"{self.description} ({self.get_day_type_display()}, ×{self.rate} après {h}h{m:02d})"
 
 
 class CompanySettings(models.Model):

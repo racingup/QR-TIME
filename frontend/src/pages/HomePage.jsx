@@ -115,6 +115,23 @@ function Greeting() {
           style={{ width: `${pct}%` }}
         />
       </div>
+      {/* Solde congés + demandes en attente */}
+      <div className="mt-3 flex flex-wrap gap-3 text-sm">
+        {summary.vacation_remaining !== undefined && (
+          <div className="flex items-center gap-1.5">
+            <span className="font-semibold text-sky-700">
+              {Number(summary.vacation_remaining).toFixed(1)}
+            </span>
+            <span className="text-slate-500">j congés restants</span>
+          </div>
+        )}
+        {summary.pending_absences_count > 0 && (
+          <div className="flex items-center gap-1.5">
+            <span className="font-semibold text-amber-600">{summary.pending_absences_count}</span>
+            <span className="text-slate-500">demande{summary.pending_absences_count > 1 ? 's' : ''} en attente</span>
+          </div>
+        )}
+      </div>
       {summary.today.has_open_session && (
         <p className="mt-2 text-xs text-emerald-700">● Session en cours</p>
       )}
