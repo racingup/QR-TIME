@@ -132,7 +132,29 @@ def sessions_overlapping_day(user, day: date_type):
     ]
 
 
-def worked_minutes_on_day(user, day: date_type) -> int:
+def apply_break_deduction(minutes: int, policy=None) -> int:
+    """Applique la déduction automatique de pause si active dans la policy.
+
+    Logique alignée sur `services.overtime.compute_overtime` (qui fait
+    la même déduction pour le calcul des heures sup). Externalisée ici
+    pour que les VUES D'AFFICHAGE (MeSummary, DayDetail, ManagerTeam…)
+    montrent le temps NET, cohérent avec le solde sup affiché.
+
+    Sans ça : le card "Règles actives" affichait « Pause auto : −30 min »
+    mais le compteur d'heures travaillées restait identique au brut → bug.
+    """
+    if policy is None:
+        from apps.users.models import WorkTimePolicy
+        policy = WorkTimePolicy.load()
+    if not policy.auto_deduct_break:
+        return minutes
+    if minutes < policy.break_trigger_minutes:
+        return minutes
+    deduction = max(0, policy.break_duration_minutes - policy.paid_break_minutes)
+    return max(0, minutes - deduction)
+
+
+def worked_minutes_on_day(user, day: date_type, *, apply_policy: bool = False) -> int:
     """Minutes travaillées pour un jour donné, en tronquant les sessions
     qui traversent minuit à [00:00, 24:00[ du jour.
 
@@ -165,4 +187,7 @@ def worked_minutes_on_day(user, day: date_type) -> int:
         else:
             merged.append([start, end])
     total_seconds = sum((end - start).total_seconds() for start, end in merged)
-    return int(total_seconds // 60)
+    minutes = int(total_seconds // 60)
+    if apply_policy:
+        minutes = apply_break_deduction(minutes)
+    return minutes

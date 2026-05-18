@@ -517,8 +517,9 @@ class MeSummaryView(APIView):
         user = request.user
         today = timezone.localdate()
         # Calcul cohérent avec DayDetailView : union d'intervalles +
-        # support des sessions traversant minuit.
-        worked_minutes = worked_minutes_on_day(user, today)
+        # support des sessions traversant minuit + déduction automatique
+        # de la pause (si WorkTimePolicy.auto_deduct_break est actif).
+        worked_minutes = worked_minutes_on_day(user, today, apply_policy=True)
         open_session = (
             ClockSession.objects
             .filter(user=user, clock_out__isnull=True)

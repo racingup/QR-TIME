@@ -206,8 +206,13 @@ class ScanView(APIView):
                 clock_in__date=today,
                 clock_out_rounded__isnull=False,
             )
-            from services.sessions import merged_worked_minutes
-            today_worked = merged_worked_minutes(closed_today)
+            from services.sessions import apply_break_deduction, merged_worked_minutes
+            # Warnings min/max appliqués sur le temps NET (après déduction
+            # automatique de pause si configurée) — cohérent avec l'affichage
+            # et avec la logique de compute_overtime.
+            today_worked = apply_break_deduction(
+                merged_worked_minutes(closed_today), policy=policy,
+            )
             warnings = []
             if policy.daily_min_minutes > 0 and today_worked < policy.daily_min_minutes:
                 warnings.append({
@@ -299,7 +304,8 @@ class DayDetailView(APIView):
         # Tri par clock_in pour affichage cohérent
         sessions_models.sort(key=lambda s: s.clock_in)
         sessions = sessions_models  # noms cohérents avec la suite
-        clocked_min = worked_minutes_on_day(user, target_date)
+        # apply_policy=True : déduit la pause auto pour cohérence affichage
+        clocked_min = worked_minutes_on_day(user, target_date, apply_policy=True)
         # Trajet pro compensable (Art. 13 al. 3 OLT 1) — calculé au niveau
         # du jour pour ce user, à partir des sessions liées à des missions
         # FIELD approuvées. Voir `services/missions_travel.py`.
@@ -850,8 +856,9 @@ class UserMonthlyDetailView(APIView):
         while cur <= end_inclusive:
             key = cur.isoformat()
             day_sessions = by_day.get(key, [])
-            # Calcul fiable même pour les sessions traversant minuit
-            clocked_min = worked_minutes_on_day(user, cur)
+            # Calcul fiable même pour les sessions traversant minuit,
+            # avec déduction auto de pause (affichage cohérent).
+            clocked_min = worked_minutes_on_day(user, cur, apply_policy=True)
             travel_min = daily_travel_compensable_minutes(user, cur)
             worked_min = clocked_min + travel_min
             days.append({
@@ -1011,21 +1018,28 @@ class ManagerTeamView(APIView):
             .values("user_id").annotate(n=Count("id"))
             .values_list("user_id", "n")
         )
-        # Sessions de la semaine groupées par user (1 requête).
+        # Sessions de la semaine groupées par (user, jour) — 1 requête.
+        # Groupement par jour pour appliquer la déduction de pause PAR JOUR
+        # (le seuil break_trigger_minutes est journalier).
         from collections import defaultdict
-        from services.sessions import merged_worked_minutes
-        sessions_by_user = defaultdict(list)
+        from services.sessions import apply_break_deduction, merged_worked_minutes
+        from apps.users.models import WorkTimePolicy
+        policy = WorkTimePolicy.load()
+        sessions_by_user_day = defaultdict(lambda: defaultdict(list))
         for s in ClockSession.objects.filter(
             user_id__in=user_ids,
             clock_in__date__gte=week_start,
             clock_in__date__lte=week_end,
             clock_out_rounded__isnull=False,
         ):
-            sessions_by_user[s.user_id].append(s)
+            sessions_by_user_day[s.user_id][s.clock_in.date()].append(s)
 
         rows = []
         for u in users:
-            worked_min = merged_worked_minutes(sessions_by_user.get(u.id, []))
+            worked_min = 0
+            for day_sessions in sessions_by_user_day.get(u.id, {}).values():
+                day_min = merged_worked_minutes(day_sessions)
+                worked_min += apply_break_deduction(day_min, policy=policy)
             pending_missions = pending_missions_by_user.get(u.id, 0)
             pending_absences = pending_absences_by_user.get(u.id, 0)
             unresolved_alerts = alerts_by_user.get(u.id, 0)

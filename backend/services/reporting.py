@@ -57,9 +57,15 @@ def build_monthly_rows(users, start: date_type, end: date_type) -> list[dict]:
                 forgotten_count=Count("id", filter=Q(is_forgotten=True)),
             )
     }
-    # Pour `clocked_minutes`, on doit calculer via une expression DB.
-    # Django ne supporte pas Sum sur une property, donc on charge les durations.
+    # Pour `clocked_minutes`, on doit grouper par (user, jour) afin
+    # d'appliquer la déduction automatique de pause PAR JOUR (le seuil
+    # break_trigger_minutes est journalier, pas mensuel).
     from django.db.models import F, ExpressionWrapper, DurationField
+    from django.db.models.functions import TruncDate
+    from services.sessions import apply_break_deduction
+    from apps.users.models import WorkTimePolicy
+    policy = WorkTimePolicy.load()
+
     sessions_durations = (
         ClockSession.objects
         .filter(
@@ -69,18 +75,24 @@ def build_monthly_rows(users, start: date_type, end: date_type) -> list[dict]:
             clock_out_rounded__isnull=False,
         )
         .annotate(
+            day=TruncDate("clock_in"),
             dur=ExpressionWrapper(
                 F("clock_out_rounded") - F("clock_in_rounded"),
                 output_field=DurationField(),
             ),
         )
-        .values("user_id")
+        .values("user_id", "day")
         .annotate(total=Sum("dur"))
     )
-    clocked_by_user = {
-        row["user_id"]: int(row["total"].total_seconds() // 60) if row["total"] else 0
-        for row in sessions_durations
-    }
+    clocked_by_user: dict[int, int] = {}
+    for row in sessions_durations:
+        if not row["total"]:
+            continue
+        day_min = int(row["total"].total_seconds() // 60)
+        clocked_by_user[row["user_id"]] = (
+            clocked_by_user.get(row["user_id"], 0)
+            + apply_break_deduction(day_min, policy=policy)
+        )
 
     rows = []
     for user in users:
