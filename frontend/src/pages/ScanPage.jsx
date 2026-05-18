@@ -3,6 +3,7 @@ import { Link, useNavigate } from 'react-router-dom'
 import QRScanner, { decodeQrFromFile } from '../components/QRScanner'
 import * as meApi from '../api/me'
 import { useClock } from '../hooks/useClock'
+import { useSummary } from '../hooks/useSummary'
 
 export default function ScanPage() {
   const { state, submitScan, reset } = useClock()
@@ -16,20 +17,18 @@ export default function ScanPage() {
   const fileInputRef = useRef(null)
   const navigate = useNavigate()
 
-  // Charger summary + consent en parallèle. Si l'utilisateur est exempt,
-  // on n'affiche jamais la gate GPS — il n'a pas besoin de pointer.
+  // summary partagé via context (pas de fetch redondant si la HomePage
+  // a déjà chargé). Le consent reste un fetch dédié (changement
+  // possible suite à une approbation admin entre-temps).
+  const { summary } = useSummary()
   useEffect(() => {
+    if (summary) setExempt(Boolean(summary.exempt_from_clocking))
     let cancelled = false
-    Promise.all([
-      meApi.summary().catch(() => null),
-      meApi.consent.get().catch(() => null),
-    ]).then(([summary, consent]) => {
-      if (cancelled) return
-      setExempt(Boolean(summary?.exempt_from_clocking))
-      setGpsConsent(consent?.gps?.granted === true)
-    })
+    meApi.consent.get()
+      .then((c) => { if (!cancelled) setGpsConsent(c?.gps?.granted === true) })
+      .catch(() => { if (!cancelled) setGpsConsent(false) })
     return () => { cancelled = true }
-  }, [])
+  }, [summary])
 
   const grantConsent = async () => {
     await meApi.consent.set('GPS', true)

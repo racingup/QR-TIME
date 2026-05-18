@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import * as clockApi from '../api/clock'
 import * as meApi from '../api/me'
+import { useSummary } from '../hooks/useSummary'
 import CalendarPage from './CalendarPage'
 
 const TABS = [
@@ -71,8 +72,9 @@ export default function HomePage() {
 }
 
 function Greeting() {
-  const [summary, setSummary] = useState(null)
-  useEffect(() => { meApi.summary().then(setSummary) }, [])
+  // useSummary partage l'objet entre tous les composants montés simultanément :
+  // évite que HomePage, ScanPage, AbsenceRequestPage refetch chacun de leur côté.
+  const { summary } = useSummary()
 
   if (!summary) {
     return (

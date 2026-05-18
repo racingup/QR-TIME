@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import * as absencesApi from '../api/absences'
 import * as meApi from '../api/me'
+import { useSummary } from '../hooks/useSummary'
 
 /**
  * Half-day flags semantics (must match backend AbsenceRequest.days_count) :
@@ -39,9 +40,8 @@ export default function AbsenceRequestPage({ presetKind }) {
   const [submitting, setSubmitting] = useState(false)
   const [created, setCreated] = useState(null)
   const [error, setError] = useState(null)
-  const [summary, setSummary] = useState(null)
-
-  useEffect(() => { meApi.summary().then(setSummary).catch(() => {}) }, [])
+  // Évite un fetch séparé de meApi.summary() — la HomePage l'a déjà chargé.
+  const { summary, refresh: refreshSummary } = useSummary()
 
   const isSingleDay =
     form.date_start && form.date_end && form.date_start === form.date_end
@@ -76,6 +76,8 @@ export default function AbsenceRequestPage({ presetKind }) {
     try {
       const data = await absencesApi.create(form)
       setCreated(data)
+      // Rafraîchir le solde affiché par tous les composants connectés.
+      refreshSummary().catch(() => {})
     } catch (err) {
       setError(err.response?.data || { error: String(err) })
     } finally {
