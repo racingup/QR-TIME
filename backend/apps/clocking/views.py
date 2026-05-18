@@ -186,7 +186,8 @@ class ScanView(APIView):
                 clock_in__date=today,
                 clock_out_rounded__isnull=False,
             )
-            today_worked = sum(s.duration_minutes for s in closed_today)
+            from services.sessions import merged_worked_minutes
+            today_worked = merged_worked_minutes(closed_today)
             warnings = []
             if policy.daily_min_minutes > 0 and today_worked < policy.daily_min_minutes:
                 warnings.append({
@@ -273,7 +274,10 @@ class DayDetailView(APIView):
         sessions = ClockSession.objects.filter(
             user_id=user_id, clock_in__date=target_date,
         ).select_related("site", "mission").order_by("clock_in")
-        clocked_min = sum(s.duration_minutes for s in sessions if s.clock_out_rounded)
+        from services.sessions import merged_worked_minutes
+        clocked_min = merged_worked_minutes(
+            s for s in sessions if s.clock_out_rounded
+        )
         # Trajet pro compensable (Art. 13 al. 3 OLT 1) — calculé au niveau
         # du jour pour ce user, à partir des sessions liées à des missions
         # FIELD approuvées. Voir `services/missions_travel.py`.
@@ -366,6 +370,27 @@ class ManualClockSessionView(APIView):
             return Response(
                 {"error": "INVALID_RANGE", "hint": "clock_out must be > clock_in"},
                 status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        # ── Anti-chevauchement : un pointage ne peut pas se superposer ────
+        # à un autre pointage du même employé (même partiellement).
+        from services.sessions import find_overlapping_session
+        overlapping = find_overlapping_session(user_id, clock_in, clock_out)
+        if overlapping:
+            end_str = (
+                overlapping.clock_out.strftime("%H:%M")
+                if overlapping.clock_out else "…"
+            )
+            return Response(
+                {
+                    "error": "OVERLAPPING_SESSION",
+                    "detail": (
+                        f"Un pointage existe déjà sur cette période "
+                        f"({overlapping.clock_in.strftime('%H:%M')} → {end_str})."
+                    ),
+                    "overlapping_id": overlapping.pk,
+                },
+                status=status.HTTP_409_CONFLICT,
             )
 
         session_type = data.get("session_type", ClockSession.SessionType.OFFICE)
@@ -472,6 +497,37 @@ class ClockSessionUpdateView(APIView):
             if key in ("clock_in", "clock_out", "clock_in_rounded", "clock_out_rounded"):
                 value = parse_datetime(value) if value else None
             setattr(session, key, value)
+
+        # ── Anti-chevauchement : refuser si le nouvel intervalle empiète ──
+        # sur un autre pointage du même employé. On exclut la session
+        # éditée elle-même de la vérification.
+        if session.clock_in and (
+            "clock_in" in request.data or "clock_out" in request.data
+            or "clock_in_rounded" in request.data or "clock_out_rounded" in request.data
+        ):
+            from services.sessions import find_overlapping_session
+            overlapping = find_overlapping_session(
+                user_id=session.user_id,
+                clock_in=session.clock_in,
+                clock_out=session.clock_out,
+                exclude_pk=session.pk,
+            )
+            if overlapping:
+                end_str = (
+                    overlapping.clock_out.strftime("%H:%M")
+                    if overlapping.clock_out else "…"
+                )
+                return Response(
+                    {
+                        "error": "OVERLAPPING_SESSION",
+                        "detail": (
+                            f"Un pointage existe déjà sur cette période "
+                            f"({overlapping.clock_in.strftime('%H:%M')} → {end_str})."
+                        ),
+                        "overlapping_id": overlapping.pk,
+                    },
+                    status=status.HTTP_409_CONFLICT,
+                )
         session.save()
 
         # Notify managers when a justification is submitted for the first time.
@@ -695,8 +751,11 @@ class UserMonthlyDetailView(APIView):
             .order_by("clock_in")
         )
         by_day = defaultdict(list)
+        by_day_models = defaultdict(list)  # pour le calcul union d'intervalles
         for s in sessions:
-            by_day[s.clock_in.date().isoformat()].append(ClockSessionSerializer(s).data)
+            key = s.clock_in.date().isoformat()
+            by_day[key].append(ClockSessionSerializer(s).data)
+            by_day_models[key].append(s)
 
         # Approved absences overlapping this month.
         absences = AbsenceRequest.objects.filter(
@@ -725,14 +784,17 @@ class UserMonthlyDetailView(APIView):
                 holidays[h.date.isoformat()] = h.name
 
         from services.missions_travel import daily_travel_compensable_minutes
+        from services.sessions import merged_worked_minutes
 
         days = []
         cur = start
         while cur <= end_inclusive:
             key = cur.isoformat()
             day_sessions = by_day.get(key, [])
-            clocked_min = sum(
-                s["duration_minutes"] for s in day_sessions if s.get("clock_out_rounded")
+            # Union d'intervalles sur les modèles (pas les dicts sérialisés)
+            day_models = by_day_models.get(key, [])
+            clocked_min = merged_worked_minutes(
+                s for s in day_models if s.clock_out_rounded
             )
             travel_min = daily_travel_compensable_minutes(user, cur)
             worked_min = clocked_min + travel_min
@@ -880,7 +942,9 @@ class ManagerTeamView(APIView):
                 clock_in__date__lte=week_end,
                 clock_out_rounded__isnull=False,
             )
-            worked_min = sum(s.duration_minutes for s in week_sessions)
+            from services.sessions import merged_worked_minutes
+            # Union d'intervalles pour ne pas double-compter les chevauchements.
+            worked_min = merged_worked_minutes(week_sessions)
             pending_missions = Mission.objects.filter(
                 user=u, status=Mission.Status.PENDING,
             ).count()

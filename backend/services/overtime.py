@@ -34,6 +34,7 @@ def compute_overtime(user: "UserProfile", date: date_type) -> Decimal:
     """
     from apps.users.models import SiteHoliday, WorkTimePolicy
     from services.missions_travel import daily_travel_compensable_minutes
+    from services.sessions import merged_worked_minutes
 
     policy = WorkTimePolicy.load()
 
@@ -41,7 +42,9 @@ def compute_overtime(user: "UserProfile", date: date_type) -> Decimal:
         clock_in_rounded__date=date,
         clock_out_rounded__isnull=False,
     )
-    worked_minutes = sum(s.duration_minutes for s in sessions)
+    # Union d'intervalles : évite la double comptabilisation lorsque
+    # plusieurs pointages d'une même journée se chevauchent.
+    worked_minutes = merged_worked_minutes(sessions)
     worked_minutes += daily_travel_compensable_minutes(user, date)
 
     # ── Break deduction (auto) ───────────────────────────────────────────

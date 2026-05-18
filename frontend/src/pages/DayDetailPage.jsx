@@ -332,7 +332,12 @@ function ManualSessionModal({ userId, username, date, onClose, onSaved }) {
       })
       onSaved()
     } catch (e) {
-      setErr(e.response?.data || e.message)
+      const data = e.response?.data
+      if (data?.error === 'OVERLAPPING_SESSION') {
+        setErr(data.detail || 'Un pointage existe déjà sur cette période.')
+      } else {
+        setErr(data?.detail || data?.error || e.message)
+      }
     } finally {
       setSaving(false)
     }
@@ -388,7 +393,11 @@ function ManualSessionModal({ userId, username, date, onClose, onSaved }) {
             onChange={(e) => setForm({ ...form, justification: e.target.value })}
           />
         </label>
-        {err && <p className="text-xs text-rose-700">{JSON.stringify(err)}</p>}
+        {err && (
+          <p className="text-sm text-rose-700 bg-rose-50 rounded-xl px-3 py-2">
+            {typeof err === 'string' ? err : JSON.stringify(err)}
+          </p>
+        )}
         <div className="flex justify-end gap-2 pt-1">
           <button type="button" onClick={onClose} className="press px-4 py-2 text-sm">Annuler</button>
           <button type="button" disabled={saving} onClick={onSave} className="pill pill-primary disabled:opacity-50">
@@ -437,7 +446,12 @@ function SessionEditModal({ session, onClose, onSaved }) {
       await clockApi.editSession(session.id, payload)
       onSaved()
     } catch (e) {
-      setErr(e.response?.data || e.message)
+      const data = e.response?.data
+      if (data?.error === 'OVERLAPPING_SESSION') {
+        setErr(data.detail || 'Un pointage existe déjà sur cette période.')
+      } else {
+        setErr(data?.detail || data?.error || e.message)
+      }
     } finally {
       setSaving(false)
     }
@@ -537,7 +551,11 @@ function SessionEditModal({ session, onClose, onSaved }) {
           </label>
         </div>
 
-        {err && <p className="text-rose-700 text-xs bg-rose-50 rounded px-2 py-1">{JSON.stringify(err)}</p>}
+        {err && (
+          <p className="text-rose-700 text-sm bg-rose-50 rounded-xl px-3 py-2">
+            {typeof err === 'string' ? err : JSON.stringify(err)}
+          </p>
+        )}
         <div className="flex gap-2 justify-end pt-1">
           <button type="button" onClick={onClose} className="press px-4 py-2 text-sm">Annuler</button>
           <button
