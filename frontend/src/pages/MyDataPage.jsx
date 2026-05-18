@@ -15,18 +15,61 @@ export default function MyDataPage() {
   const [requestForm, setRequestForm] = useState({ open: false, reason: '' })
   const [submitting, setSubmitting] = useState(false)
 
+  // Withdrawal state
+  const [pendingWithdrawals, setPendingWithdrawals] = useState([])
+  // { [kind]: { open: false, reason: '' } }
+  const [withdrawForm, setWithdrawForm] = useState({})
+  const [withdrawSubmitting, setWithdrawSubmitting] = useState({})
+
   const refreshConsents = () => meApi.consent.get().then(setConsents)
+  const refreshWithdrawals = () =>
+    meApi.consentWithdrawal.get().then((d) => setPendingWithdrawals(d.pending ?? d))
   const refreshDeletionRequest = () =>
     meApi.deletionRequest.get().then((d) => setPendingRequest(d.pending))
 
   useEffect(() => {
     refreshConsents()
+    refreshWithdrawals()
     refreshDeletionRequest()
   }, [])
 
-  const toggle = async (kind, granted) => {
-    await meApi.consent.set(kind, granted)
+  const grantConsent = async (kind) => {
+    await meApi.consent.set(kind, true)
     refreshConsents()
+  }
+
+  const openWithdrawForm = (kind) =>
+    setWithdrawForm((p) => ({ ...p, [kind]: { open: true, reason: '' } }))
+
+  const closeWithdrawForm = (kind) =>
+    setWithdrawForm((p) => ({ ...p, [kind]: { open: false, reason: '' } }))
+
+  const setWithdrawReason = (kind, reason) =>
+    setWithdrawForm((p) => ({ ...p, [kind]: { ...p[kind], reason } }))
+
+  const submitWithdrawal = async (kind) => {
+    setWithdrawSubmitting((p) => ({ ...p, [kind]: true }))
+    try {
+      await meApi.consentWithdrawal.create(kind, withdrawForm[kind]?.reason || '')
+      closeWithdrawForm(kind)
+      await refreshWithdrawals()
+    } catch (e) {
+      const data = e?.response?.data
+      if (data?.error === 'ALREADY_PENDING') {
+        closeWithdrawForm(kind)
+        await refreshWithdrawals()
+      }
+      // Silently ignore other errors — the form stays open so user can retry
+    } finally {
+      setWithdrawSubmitting((p) => ({ ...p, [kind]: false }))
+    }
+  }
+
+  const hasPendingWithdrawal = (kind) => {
+    if (Array.isArray(pendingWithdrawals)) {
+      return pendingWithdrawals.some((w) => w.kind === kind)
+    }
+    return false
   }
 
   const downloadExport = async () => {
@@ -85,27 +128,85 @@ export default function MyDataPage() {
             {['GPS', 'STORAGE', 'PRIVACY_POLICY'].map((k) => {
               const c = consents[k.toLowerCase()]
               const granted = c?.granted
+              const isPendingWithdrawal = hasPendingWithdrawal(k)
+              const form = withdrawForm[k]
+
               return (
-                <li key={k} className="glass-soft rounded-2xl p-3 flex items-center gap-3 text-sm">
-                  <span className="flex-1">
-                    <span className="font-medium">{KIND_LABEL[k]}</span>
-                    <span className="block text-xs text-slate-500">
-                      {c
-                        ? `${granted ? 'Accordé' : 'Refusé'} le ${new Date(c.at).toLocaleString('fr-FR')}`
-                        : 'Aucune décision enregistrée'}
+                <li key={k} className="glass-soft rounded-2xl p-3 space-y-2 text-sm">
+                  <div className="flex items-center gap-3">
+                    <span className="flex-1">
+                      <span className="font-medium">{KIND_LABEL[k]}</span>
+                      <span className="block text-xs text-slate-500">
+                        {c
+                          ? `${granted ? 'Accordé' : 'Refusé'} le ${new Date(c.at).toLocaleString('fr-FR')}`
+                          : 'Aucune décision enregistrée'}
+                      </span>
                     </span>
-                  </span>
-                  <button
-                    type="button"
-                    onClick={() => toggle(k, !granted)}
-                    className={`press text-xs px-3 py-1 rounded-full ${
-                      granted
-                        ? 'bg-rose-100 text-rose-800'
-                        : 'bg-emerald-100 text-emerald-800'
-                    }`}
-                  >
-                    {granted ? 'Retirer' : 'Accorder'}
-                  </button>
+                    {granted ? (
+                      isPendingWithdrawal ? (
+                        <span className="text-xs px-3 py-1 rounded-full bg-amber-100 text-amber-800">
+                          ⏳ Retrait demandé
+                        </span>
+                      ) : form?.open ? null : (
+                        <button
+                          type="button"
+                          onClick={() => openWithdrawForm(k)}
+                          className="press text-xs px-3 py-1 rounded-full bg-rose-100 text-rose-800"
+                        >
+                          Demander le retrait
+                        </button>
+                      )
+                    ) : (
+                      <button
+                        type="button"
+                        onClick={() => grantConsent(k)}
+                        className="press text-xs px-3 py-1 rounded-full bg-emerald-100 text-emerald-800"
+                      >
+                        Accorder
+                      </button>
+                    )}
+                  </div>
+
+                  {/* Inline withdrawal form */}
+                  {granted && !isPendingWithdrawal && form?.open && (
+                    <div className="glass rounded-2xl p-3 space-y-3 border-l-4 border-rose-400">
+                      <p className="text-xs text-slate-600 font-medium">
+                        Demande de retrait — {KIND_LABEL[k]}
+                      </p>
+                      <label className="block text-xs">
+                        Motif (optionnel)
+                        <textarea
+                          className="glass-input w-full mt-1 h-16"
+                          placeholder="Ex : changement de politique interne, autre…"
+                          value={form.reason}
+                          onChange={(e) => setWithdrawReason(k, e.target.value)}
+                          maxLength={1000}
+                        />
+                      </label>
+                      <p className="text-xs text-slate-500">
+                        Votre demande sera transmise à l'administrateur RH. Vous resterez
+                        actif avec ce consentement accordé jusqu'à la décision.
+                      </p>
+                      <div className="flex gap-2 justify-end">
+                        <button
+                          type="button"
+                          onClick={() => closeWithdrawForm(k)}
+                          disabled={withdrawSubmitting[k]}
+                          className="px-4 py-2 text-xs"
+                        >
+                          Annuler
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => submitWithdrawal(k)}
+                          disabled={withdrawSubmitting[k]}
+                          className="pill bg-rose-600 text-white text-xs disabled:opacity-50"
+                        >
+                          {withdrawSubmitting[k] ? 'Envoi…' : 'Envoyer la demande à l\'admin RH'}
+                        </button>
+                      </div>
+                    </div>
+                  )}
                 </li>
               )
             })}

@@ -1,6 +1,7 @@
 import { Navigate, Route, BrowserRouter as Router, Routes } from 'react-router-dom'
 import AppLayout from './layouts/AppLayout'
 import { AuthProvider, useAuth } from './hooks/useAuth'
+import ConsentGatePage from './pages/ConsentGatePage'
 import { CompanyProvider } from './hooks/useCompany'
 import AdminSettingsPage from './pages/AdminSettingsPage'
 import CalendarPage from './pages/CalendarPage'
@@ -27,9 +28,12 @@ function PublicPrivacyShell() {
 }
 
 function RequireAuth({ children }) {
-  const { user, loading } = useAuth()
+  const { user, loading, refreshMe } = useAuth()
   if (loading) return <p className="p-6">Chargement…</p>
   if (!user) return <Navigate to="/login" replace />
+  if (user.must_accept_consent) {
+    return <ConsentGatePage onAccepted={() => refreshMe()} />
+  }
   return children
 }
 

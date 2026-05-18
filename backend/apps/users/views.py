@@ -16,6 +16,7 @@ from apps.users.models import (
     AdminAuditLog,
     CompanySettings,
     ConsentLog,
+    ConsentWithdrawalRequest,
     DataDeletionRequest,
     MajorationRule,
     Site,
@@ -223,6 +224,13 @@ class MeConsentView(APIView):
         if kind not in ("GPS", "STORAGE", "PRIVACY_POLICY"):
             return Response({"error": "INVALID_KIND"}, status=status.HTTP_400_BAD_REQUEST)
         granted = bool(request.data.get("granted"))
+        if not granted:
+            # Le retrait de consentement passe par un workflow RH — pas un simple clic.
+            return Response(
+                {"error": "USE_WITHDRAWAL_REQUEST",
+                 "hint": "POST /api/me/consent-withdrawal/ {kind, reason}"},
+                status=status.HTTP_403_FORBIDDEN,
+            )
         ConsentLog.objects.create(
             user=request.user,
             kind=kind,
@@ -386,6 +394,95 @@ def _serialize_deletion_request(req) -> dict:
     }
 
 
+class MeConsentAcceptInitialView(APIView):
+    """POST /api/me/consent/accept-initial/ — acceptation initiale des 3 consentements.
+
+    Appelé une seule fois à la première connexion. Enregistre 3 ConsentLog
+    (GPS+STORAGE+PRIVACY_POLICY à granted=True) et passe must_accept_consent=False.
+    """
+
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request):
+        from services.audit import log_admin_action
+        user = request.user
+        if not user.must_accept_consent:
+            return Response({"ok": True, "already_done": True})
+
+        for kind in ("GPS", "STORAGE", "PRIVACY_POLICY"):
+            ConsentLog.objects.create(
+                user=user, kind=kind, granted=True,
+                policy_version=PRIVACY_POLICY_VERSION if kind == "PRIVACY_POLICY" else "",
+                ip_address=_client_ip(request),
+                user_agent=(request.META.get("HTTP_USER_AGENT") or "")[:300],
+            )
+        user.must_accept_consent = False
+        user.save(update_fields=["must_accept_consent"])
+
+        log_admin_action(
+            actor=user, action=AdminAuditLog.Action.CONSENT_INITIAL_ACCEPTED,
+            target_user=user, object_type="initial_consent", request=request,
+        )
+        return Response({"ok": True})
+
+
+class MeConsentWithdrawalView(APIView):
+    """GET /api/me/consent-withdrawal/ — liste des demandes de retrait en cours.
+    POST /api/me/consent-withdrawal/ — soumet une demande {kind, reason}.
+    """
+
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        requests_qs = ConsentWithdrawalRequest.objects.filter(
+            user=request.user, status=ConsentWithdrawalRequest.Status.PENDING
+        )
+        return Response({
+            "pending": [_serialize_withdrawal_request(r) for r in requests_qs]
+        })
+
+    def post(self, request):
+        from services.audit import log_admin_action
+        kind = request.data.get("kind")
+        if kind not in ("GPS", "STORAGE", "PRIVACY_POLICY"):
+            return Response({"error": "INVALID_KIND"}, status=status.HTTP_400_BAD_REQUEST)
+        reason = (request.data.get("reason") or "")[:1000]
+
+        existing = ConsentWithdrawalRequest.objects.filter(
+            user=request.user, kind=kind, status=ConsentWithdrawalRequest.Status.PENDING
+        ).first()
+        if existing:
+            return Response(
+                {"error": "ALREADY_PENDING", "request": _serialize_withdrawal_request(existing)},
+                status=status.HTTP_409_CONFLICT,
+            )
+
+        req = ConsentWithdrawalRequest.objects.create(
+            user=request.user, kind=kind, user_reason=reason,
+        )
+        log_admin_action(
+            actor=request.user, action=AdminAuditLog.Action.CONSENT_WITHDRAWAL_CREATED,
+            target_user=request.user, object_type="ConsentWithdrawalRequest",
+            object_id=str(req.pk), request=request,
+        )
+        return Response(
+            {"ok": True, "request": _serialize_withdrawal_request(req)},
+            status=status.HTTP_201_CREATED,
+        )
+
+
+def _serialize_withdrawal_request(req) -> dict:
+    return {
+        "id": req.pk,
+        "kind": req.kind,
+        "status": req.status,
+        "user_reason": req.user_reason,
+        "admin_comment": req.admin_comment,
+        "created_at": req.created_at,
+        "decided_at": req.decided_at,
+    }
+
+
 class MeHolidaysView(APIView):
     """GET /api/me/holidays/?start=YYYY-MM-DD&end=YYYY-MM-DD — holidays of the user's home_site."""
 
@@ -442,6 +539,7 @@ class MeSummaryView(APIView):
             "is_mission_manager": user.is_mission_manager,
             "is_superuser": user.is_superuser,
             "exempt_from_clocking": user.exempt_from_clocking,
+            "must_accept_consent": user.must_accept_consent,
             "weekly_target_hours": user.weekly_target_hours,
             "daily_target_hours": user.daily_target_hours,
             "overtime_balance_hours": user.overtime_balance,
@@ -699,6 +797,90 @@ class AdminDeletionRequestDecisionView(APIView):
 
         req.refresh_from_db()
         return Response(_serialize_deletion_request(req))
+
+
+class AdminConsentWithdrawalListView(APIView):
+    """GET /api/admin/consent-withdrawals/ — superuser uniquement.
+
+    Vue d'inbox RH : toutes les demandes de retrait de consentement soumises
+    par les collaborateurs. Filtre `status` optionnel (par défaut : tout).
+    """
+
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        if not request.user.is_superuser:
+            return Response(status=status.HTTP_403_FORBIDDEN)
+        status_filter = request.query_params.get("status")
+        qs = ConsentWithdrawalRequest.objects.select_related("user", "decided_by").order_by("-created_at")
+        if status_filter:
+            qs = qs.filter(status=status_filter)
+        return Response({"results": [_serialize_withdrawal_request_admin(r) for r in qs]})
+
+
+class AdminConsentWithdrawalDecideView(APIView):
+    """PATCH /api/admin/consent-withdrawals/{id}/ — approve ou reject."""
+
+    permission_classes = [IsAuthenticated]
+
+    def patch(self, request, pk):
+        from django.shortcuts import get_object_or_404
+        from services.audit import log_admin_action
+        if not request.user.is_superuser:
+            return Response(status=status.HTTP_403_FORBIDDEN)
+        req = get_object_or_404(ConsentWithdrawalRequest, pk=pk)
+        if req.status != ConsentWithdrawalRequest.Status.PENDING:
+            return Response({"error": "NOT_PENDING"}, status=status.HTTP_409_CONFLICT)
+
+        decision = request.data.get("decision")
+        comment = (request.data.get("comment") or "")[:500]
+
+        if decision == "APPROVE":
+            req.status = ConsentWithdrawalRequest.Status.APPROVED
+            req.decided_by = request.user
+            req.admin_comment = comment
+            req.decided_at = timezone.now()
+            req.save()
+            # Enregistrer le retrait effectif
+            ConsentLog.objects.create(
+                user=req.user, kind=req.kind, granted=False,
+                policy_version=PRIVACY_POLICY_VERSION if req.kind == "PRIVACY_POLICY" else "",
+                ip_address=_client_ip(request),
+                user_agent=(request.META.get("HTTP_USER_AGENT") or "")[:300],
+            )
+            log_admin_action(
+                actor=request.user, action=AdminAuditLog.Action.CONSENT_WITHDRAWAL_APPROVED,
+                target_user=req.user, object_type="ConsentWithdrawalRequest",
+                object_id=str(req.pk), request=request,
+            )
+        elif decision == "REJECT":
+            req.status = ConsentWithdrawalRequest.Status.REJECTED
+            req.decided_by = request.user
+            req.admin_comment = comment
+            req.decided_at = timezone.now()
+            req.save()
+            log_admin_action(
+                actor=request.user, action=AdminAuditLog.Action.CONSENT_WITHDRAWAL_REJECTED,
+                target_user=req.user, object_type="ConsentWithdrawalRequest",
+                object_id=str(req.pk), request=request,
+            )
+        else:
+            return Response({"error": "INVALID_DECISION"}, status=status.HTTP_400_BAD_REQUEST)
+
+        return Response({"ok": True, "request": _serialize_withdrawal_request(req)})
+
+
+def _serialize_withdrawal_request_admin(req) -> dict:
+    d = _serialize_withdrawal_request(req)
+    d["user"] = {
+        "id": req.user_id,
+        "username": req.user.username,
+        "full_name": req.user.get_full_name(),
+        "email": req.user.email,
+    }
+    if req.decided_by:
+        d["decided_by"] = req.decided_by.get_full_name() or req.decided_by.username
+    return d
 
 
 # ── Helpers ─────────────────────────────────────────────────────────────────

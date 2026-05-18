@@ -78,6 +78,10 @@ class UserProfile(AbstractUser):
         related_name="reports",
         help_text="Manager direct (utilisé pour les notifications email).",
     )
+    must_accept_consent = models.BooleanField(
+        default=True,
+        help_text="True → l'employé doit accepter les 3 consentements avant d'accéder à la plateforme.",
+    )
 
     @property
     def daily_target_hours(self) -> Decimal:
@@ -390,6 +394,10 @@ class AdminAuditLog(models.Model):
         DATA_EXPORT = "DATA_EXPORT", "Export de données utilisateur"
         SITE_QR_ROTATE = "SITE_QR_ROTATE", "Rotation QR site"
         DATA_PURGED = "DATA_PURGED", "Purge rétention LPD"
+        CONSENT_WITHDRAWAL_CREATED  = "CONSENT_WITHDRAWAL_CREATED",  "Demande retrait consentement (employé)"
+        CONSENT_WITHDRAWAL_APPROVED = "CONSENT_WITHDRAWAL_APPROVED", "Retrait consentement approuvé"
+        CONSENT_WITHDRAWAL_REJECTED = "CONSENT_WITHDRAWAL_REJECTED", "Retrait consentement refusé"
+        CONSENT_INITIAL_ACCEPTED    = "CONSENT_INITIAL_ACCEPTED",    "Consentements initiaux acceptés"
 
     actor = models.ForeignKey(
         "users.UserProfile", on_delete=models.SET_NULL,
@@ -464,6 +472,53 @@ class DataDeletionRequest(models.Model):
                 fields=["user"],
                 condition=models.Q(status="PENDING"),
                 name="unique_pending_deletion_request_per_user",
+            ),
+        ]
+
+
+class ConsentWithdrawalRequest(models.Model):
+    """Demande de retrait de consentement par un collaborateur.
+
+    Le retrait n'est PAS immédiat : il est transmis à l'admin/RH qui
+    décide de l'accepter ou non (impact contractuel possible).
+
+    Workflow identique à DataDeletionRequest.
+    """
+
+    class Status(models.TextChoices):
+        PENDING  = "PENDING",  "En attente"
+        APPROVED = "APPROVED", "Approuvée — consentement retiré"
+        REJECTED = "REJECTED", "Refusée"
+
+    class Kind(models.TextChoices):
+        GPS            = "GPS",            "Géolocalisation"
+        STORAGE        = "STORAGE",        "Stockage local de session"
+        PRIVACY_POLICY = "PRIVACY_POLICY", "Politique de confidentialité"
+
+    user = models.ForeignKey(
+        "users.UserProfile", on_delete=models.CASCADE,
+        related_name="consent_withdrawal_requests",
+    )
+    kind = models.CharField(max_length=32, choices=Kind.choices)
+    user_reason = models.TextField(blank=True)
+    status = models.CharField(
+        max_length=10, choices=Status.choices, default=Status.PENDING,
+    )
+    decided_by = models.ForeignKey(
+        "users.UserProfile", on_delete=models.SET_NULL,
+        null=True, blank=True, related_name="decided_consent_withdrawals",
+    )
+    admin_comment = models.TextField(blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    decided_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        ordering = ["-created_at"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["user", "kind"],
+                condition=models.Q(status="PENDING"),
+                name="unique_pending_consent_withdrawal_per_user_kind",
             ),
         ]
 

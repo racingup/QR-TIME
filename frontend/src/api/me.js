@@ -22,3 +22,14 @@ export const deletionRequest = {
       .post('/me/deletion-request/', { confirm: 'DELETE', reason })
       .then((r) => r.data),
 }
+
+// Acceptation initiale des 3 consentements (premier usage)
+export const acceptInitialConsent = () =>
+  api.post('/me/consent/accept-initial/').then((r) => r.data)
+
+// Demandes de retrait de consentement
+export const consentWithdrawal = {
+  get: () => api.get('/me/consent-withdrawal/').then((r) => r.data),
+  create: (kind, reason) =>
+    api.post('/me/consent-withdrawal/', { kind, reason }).then((r) => r.data),
+}

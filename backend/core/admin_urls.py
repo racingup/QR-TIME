@@ -5,6 +5,8 @@ from rest_framework.routers import DefaultRouter
 from apps.clocking.views import FixedTimeSlotViewSet
 from apps.users.views import (
     AdminAuditLogView,
+    AdminConsentWithdrawalDecideView,
+    AdminConsentWithdrawalListView,
     AdminDeletionRequestDecisionView,
     AdminDeletionRequestListView,
     AdminUserViewSet,
@@ -42,4 +44,6 @@ urlpatterns = [
     path("work-time-policy/", WorkTimePolicyView.as_view(), name="admin-work-time-policy"),
     path("majoration-rules/", MajorationRuleListView.as_view(), name="admin-majoration-rules"),
     path("majoration-rules/<int:pk>/", MajorationRuleDetailView.as_view(), name="admin-majoration-rule-detail"),
+    path("consent-withdrawals/", AdminConsentWithdrawalListView.as_view(), name="admin-consent-withdrawals"),
+    path("consent-withdrawals/<int:pk>/", AdminConsentWithdrawalDecideView.as_view(), name="admin-consent-withdrawal-decide"),
 ]

@@ -4,6 +4,7 @@ from django.contrib.auth.admin import UserAdmin
 from apps.users.models import (
     AdminAuditLog,
     ConsentLog,
+    ConsentWithdrawalRequest,
     Site,
     SiteHoliday,
     SiteQRAudit,
@@ -47,6 +48,15 @@ class ConsentLogAdmin(admin.ModelAdmin):
     list_filter = ("kind", "granted")
     search_fields = ("user__username",)
     readonly_fields = ("user", "kind", "granted", "policy_version", "ip_address", "user_agent", "created_at")
+
+
+@admin.register(ConsentWithdrawalRequest)
+class ConsentWithdrawalRequestAdmin(admin.ModelAdmin):
+    list_display = ("user", "kind", "status", "created_at", "decided_by", "decided_at")
+    list_filter = ("kind", "status")
+    search_fields = ("user__username", "user__email")
+    readonly_fields = ("user", "kind", "user_reason", "created_at")
+    fields = ("user", "kind", "user_reason", "status", "decided_by", "admin_comment", "decided_at", "created_at")
 
 
 @admin.register(AdminAuditLog)

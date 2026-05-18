@@ -8,7 +8,9 @@ from rest_framework_simplejwt.views import (
 from apps.users.throttles import LoginIPThrottle, LoginUserThrottle
 from apps.users.views import (
     MeCompanyView,
+    MeConsentAcceptInitialView,
     MeConsentView,
+    MeConsentWithdrawalView,
     MeDeletionRequestView,
     MeExportView,
     MeHolidaysView,
@@ -36,6 +38,8 @@ me_urlpatterns = [
     path("summary/", MeSummaryView.as_view(), name="me-summary"),
     path("holidays/", MeHolidaysView.as_view(), name="me-holidays"),
     path("consent/", MeConsentView.as_view(), name="me-consent"),
+    path("consent/accept-initial/", MeConsentAcceptInitialView.as_view(), name="me-consent-accept-initial"),
+    path("consent-withdrawal/", MeConsentWithdrawalView.as_view(), name="me-consent-withdrawal"),
     path("export/", MeExportView.as_view(), name="me-export"),
     # Workflow LPD : l'employé soumet une *demande* de suppression. L'ancienne
     # route /delete-account/ est conservée comme alias pour les clients déjà
