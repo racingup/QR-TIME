@@ -23,5 +23,11 @@
 		Strict-Transport-Security "max-age=31536000; includeSubDomains"
 		X-Content-Type-Options "nosniff"
 		Referrer-Policy "same-origin"
+		X-Frame-Options "DENY"
+		# CSP : restreint à 'self' pour script/style. Tailwind/React injectent
+		# du CSS inline → 'unsafe-inline' requis pour style-src.
+		# Pas de CDN externe utilisé → tout en self.
+		Content-Security-Policy "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https://tile.openstreetmap.org; connect-src 'self' https://*.openrouteservice.org; font-src 'self' data:; frame-ancestors 'none'; base-uri 'self'; form-action 'self'"
+		Permissions-Policy "geolocation=(self), camera=(self), microphone=()"
 	}
 }

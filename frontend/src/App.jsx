@@ -1,28 +1,47 @@
+import { lazy, Suspense } from 'react'
 import { Navigate, Route, BrowserRouter as Router, Routes } from 'react-router-dom'
 import AppLayout from './layouts/AppLayout'
 import { AuthProvider, useAuth } from './hooks/useAuth'
-import ConsentGatePage from './pages/ConsentGatePage'
 import { CompanyProvider } from './hooks/useCompany'
-import AdminSettingsPage from './pages/AdminSettingsPage'
-import CalendarPage from './pages/CalendarPage'
-import DayDetailPage from './pages/DayDetailPage'
-import EmployeeDashboard from './pages/EmployeeDashboard'
-import HomePage from './pages/HomePage'
+import { SummaryProvider } from './hooks/useSummary'
+
+// Pages critiques (eager) : login + landing + consent gate.
 import LoginPage from './pages/LoginPage'
-import ManagerDashboard from './pages/ManagerDashboard'
-import MissionAdminPage from './pages/MissionAdminPage'
-import MyDataPage from './pages/MyDataPage'
-import PrivacyPage from './pages/PrivacyPage'
-import QRPrintPage from './pages/QRPrintPage'
-import RequestsPage from './pages/RequestsPage'
-import ScanPage from './pages/ScanPage'
+import HomePage from './pages/HomePage'
+import ConsentGatePage from './pages/ConsentGatePage'
+
+// Pages secondaires (lazy) : chargées à la demande. Bundle initial divisé.
+//
+// Bénéfice : un employé qui ne va jamais sur /admin ne télécharge pas
+// les ~80 KB d'AdminSettingsPage (et ses libs : leaflet, recharts…).
+const AdminSettingsPage = lazy(() => import('./pages/AdminSettingsPage'))
+const CalendarPage      = lazy(() => import('./pages/CalendarPage'))
+const DayDetailPage     = lazy(() => import('./pages/DayDetailPage'))
+const EmployeeDashboard = lazy(() => import('./pages/EmployeeDashboard'))
+const ManagerDashboard  = lazy(() => import('./pages/ManagerDashboard'))
+const MissionAdminPage  = lazy(() => import('./pages/MissionAdminPage'))
+const MyDataPage        = lazy(() => import('./pages/MyDataPage'))
+const PrivacyPage       = lazy(() => import('./pages/PrivacyPage'))
+const QRPrintPage       = lazy(() => import('./pages/QRPrintPage'))
+const RequestsPage      = lazy(() => import('./pages/RequestsPage'))
+const ScanPage          = lazy(() => import('./pages/ScanPage'))
+
+function PageLoader() {
+  return (
+    <div className="min-h-[40vh] flex items-center justify-center">
+      <p className="text-slate-500 text-sm">Chargement…</p>
+    </div>
+  )
+}
 
 /** Privacy policy is publicly accessible (LPD: must be reachable without login). */
 function PublicPrivacyShell() {
   return (
     <>
       <div className="app-bg" aria-hidden />
-      <PrivacyPage />
+      <Suspense fallback={<PageLoader />}>
+        <PrivacyPage />
+      </Suspense>
     </>
   )
 }
@@ -66,6 +85,7 @@ export default function App() {
     <Router>
       <CompanyProvider>
       <AuthProvider>
+      <SummaryProvider>
         <Routes>
           <Route path="/login" element={<LoginPage />} />
           <Route path="/privacy" element={<PublicPrivacyShell />} />
@@ -77,25 +97,66 @@ export default function App() {
             }
           >
             <Route index element={<HomePage />} />
-            <Route path="scan" element={<ScanPage />} />
-            <Route path="dashboard" element={<EmployeeDashboard />} />
-            <Route path="my-data" element={<MyDataPage />} />
-            <Route path="history/:date" element={<DayDetailPage />} />
-            <Route path="calendar" element={<CalendarPage />} />
-            <Route path="requests" element={<RequestsPage />} />
-            <Route path="manager" element={<RequireManager><ManagerDashboard /></RequireManager>} />
+            <Route
+              path="scan"
+              element={<Suspense fallback={<PageLoader />}><ScanPage /></Suspense>}
+            />
+            <Route
+              path="dashboard"
+              element={<Suspense fallback={<PageLoader />}><EmployeeDashboard /></Suspense>}
+            />
+            <Route
+              path="my-data"
+              element={<Suspense fallback={<PageLoader />}><MyDataPage /></Suspense>}
+            />
+            <Route
+              path="history/:date"
+              element={<Suspense fallback={<PageLoader />}><DayDetailPage /></Suspense>}
+            />
+            <Route
+              path="calendar"
+              element={<Suspense fallback={<PageLoader />}><CalendarPage /></Suspense>}
+            />
+            <Route
+              path="requests"
+              element={<Suspense fallback={<PageLoader />}><RequestsPage /></Suspense>}
+            />
+            <Route
+              path="manager"
+              element={
+                <RequireManager>
+                  <Suspense fallback={<PageLoader />}><ManagerDashboard /></Suspense>
+                </RequireManager>
+              }
+            />
             <Route
               path="mission-gestion"
-              element={<RequireMissionManager><MissionAdminPage /></RequireMissionManager>}
+              element={
+                <RequireMissionManager>
+                  <Suspense fallback={<PageLoader />}><MissionAdminPage /></Suspense>
+                </RequireMissionManager>
+              }
             />
-            <Route path="admin" element={<RequireSuperUser><AdminSettingsPage /></RequireSuperUser>} />
+            <Route
+              path="admin"
+              element={
+                <RequireSuperUser>
+                  <Suspense fallback={<PageLoader />}><AdminSettingsPage /></Suspense>
+                </RequireSuperUser>
+              }
+            />
             <Route
               path="admin/sites/:id/qr"
-              element={<RequireSuperUser><QRPrintPage /></RequireSuperUser>}
+              element={
+                <RequireSuperUser>
+                  <Suspense fallback={<PageLoader />}><QRPrintPage /></Suspense>
+                </RequireSuperUser>
+              }
             />
           </Route>
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
+      </SummaryProvider>
       </AuthProvider>
       </CompanyProvider>
     </Router>

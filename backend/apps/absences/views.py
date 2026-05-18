@@ -288,23 +288,6 @@ def _recredite_vacation_for_sick_overlap(sick_absence: AbsenceRequest) -> None:
 
 
 def _check_month_lock(user: UserProfile, obj_date) -> None:
-    """Raise PermissionDenied if the month is locked and user has no bypass."""
-    from django.core.exceptions import PermissionDenied
-    from django.utils import timezone
-    from apps.users.models import WorkTimePolicy
-
-    if user.is_superuser or getattr(user, "can_edit_locked_months", False):
-        return
-    policy = WorkTimePolicy.load()
-    if policy.lock_bypass_roles == "manager" and user.is_manager:
-        return
-    if policy.lock_bypass_roles == "any":
-        return
-    today = timezone.localdate()
-    if today.day > policy.month_lock_day:
-        cutoff = today.replace(day=1)
-        if obj_date < cutoff:
-            raise PermissionDenied(
-                f"Les modifications sont bloquées après le {policy.month_lock_day}"
-                f" du mois. Contactez un administrateur."
-            )
+    """Délégation vers `services.month_lock` (point unique de décision)."""
+    from services.month_lock import check_month_lock
+    check_month_lock(user, obj_date)

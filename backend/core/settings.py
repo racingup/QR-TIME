@@ -241,3 +241,56 @@ SITE_PUBLIC_URL = os.environ.get("SITE_PUBLIC_URL", "http://localhost:3001")
 # peut toujours saisir manuellement les minutes dans la fiche du collaborateur.
 ROUTING_BACKEND = os.environ.get("ROUTING_BACKEND", "ors")
 ORS_API_KEY = os.environ.get("ORS_API_KEY", "")
+
+# ── Logging structuré ─────────────────────────────────────────────────────
+# Format JSON en prod pour faciliter l'ingestion (Loki, ELK, etc.).
+# Format lisible en dev.
+LOGGING = {
+    "version": 1,
+    "disable_existing_loggers": False,
+    "formatters": {
+        "verbose": {
+            "format": "{asctime} {levelname:7s} {name}.{funcName}() :: {message}",
+            "style": "{",
+        },
+        "json": {
+            "()": "core.logging_formatter.JsonFormatter",
+        },
+    },
+    "handlers": {
+        "console": {
+            "class": "logging.StreamHandler",
+            "formatter": "verbose" if DEBUG else "json",
+        },
+    },
+    "root": {
+        "handlers": ["console"],
+        "level": "INFO",
+    },
+    "loggers": {
+        "django": {"handlers": ["console"], "level": "INFO", "propagate": False},
+        "django.request": {"handlers": ["console"], "level": "WARNING", "propagate": False},
+        "celery": {"handlers": ["console"], "level": "INFO", "propagate": False},
+        "apps": {"handlers": ["console"], "level": "INFO", "propagate": False},
+        "services": {"handlers": ["console"], "level": "INFO", "propagate": False},
+    },
+}
+
+# ── Sentry (observabilité prod) ───────────────────────────────────────────
+# SDK optionnel : activé si SENTRY_DSN est défini. Aucune donnée envoyée sinon.
+SENTRY_DSN = os.environ.get("SENTRY_DSN", "")
+if SENTRY_DSN and not DEBUG:
+    try:
+        import sentry_sdk
+        from sentry_sdk.integrations.django import DjangoIntegration
+        from sentry_sdk.integrations.celery import CeleryIntegration
+        sentry_sdk.init(
+            dsn=SENTRY_DSN,
+            integrations=[DjangoIntegration(), CeleryIntegration()],
+            traces_sample_rate=float(os.environ.get("SENTRY_TRACES_RATE", "0.1")),
+            send_default_pii=False,  # LPD : pas de PII automatique
+            environment=os.environ.get("SENTRY_ENV", "production"),
+            release=os.environ.get("SENTRY_RELEASE", ""),
+        )
+    except ImportError:
+        pass  # Sentry SDK pas installé — fail-open

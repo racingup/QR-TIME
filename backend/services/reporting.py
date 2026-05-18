@@ -23,27 +23,71 @@ def build_monthly_rows(users, start: date_type, end: date_type) -> list[dict]:
     `travel_compensable_minutes` pour la transparence du rapport.
     """
     from services.missions_travel import period_travel_compensable_minutes
+    from apps.clocking.models import ClockSession
+    from django.db.models import Count, Q, Sum, IntegerField
+    from django.db.models.functions import Coalesce
 
-    rows = []
-    for user in users:
-        sessions = user.sessions.filter(
+    user_ids = [u.id for u in users]
+    # Une seule requête agrégée pour tous les users : remplace 3 queries × N users.
+    stats_by_user = {
+        row["user_id"]: row
+        for row in ClockSession.objects
+            .filter(
+                user_id__in=user_ids,
+                clock_in__date__gte=start,
+                clock_in__date__lte=end,
+            )
+            .values("user_id")
+            .annotate(
+                clocked_minutes=Coalesce(
+                    Sum(
+                        "duration_minutes" if False else  # placeholder
+                        "id",  # we'll compute below as we can't sum a property
+                    ),
+                    0,
+                ),
+                # Django ne peut pas sommer `duration_minutes` (property Python).
+                # On compte simplement et somme via expression equivalente :
+                # diff_minutes = EXTRACT(EPOCH FROM clock_out_rounded - clock_in_rounded) / 60
+                # — fait via raw expression ci-dessous.
+                sessions_count=Count(
+                    "id", filter=Q(clock_out_rounded__isnull=False),
+                ),
+                open_count=Count("id", filter=Q(clock_out__isnull=True)),
+                forgotten_count=Count("id", filter=Q(is_forgotten=True)),
+            )
+    }
+    # Pour `clocked_minutes`, on doit calculer via une expression DB.
+    # Django ne supporte pas Sum sur une property, donc on charge les durations.
+    from django.db.models import F, ExpressionWrapper, DurationField
+    sessions_durations = (
+        ClockSession.objects
+        .filter(
+            user_id__in=user_ids,
             clock_in__date__gte=start,
             clock_in__date__lte=end,
             clock_out_rounded__isnull=False,
         )
-        clocked_min = sum(s.duration_minutes for s in sessions)
+        .annotate(
+            dur=ExpressionWrapper(
+                F("clock_out_rounded") - F("clock_in_rounded"),
+                output_field=DurationField(),
+            ),
+        )
+        .values("user_id")
+        .annotate(total=Sum("dur"))
+    )
+    clocked_by_user = {
+        row["user_id"]: int(row["total"].total_seconds() // 60) if row["total"] else 0
+        for row in sessions_durations
+    }
+
+    rows = []
+    for user in users:
+        s = stats_by_user.get(user.id, {})
+        clocked_min = clocked_by_user.get(user.id, 0)
         travel_min = period_travel_compensable_minutes(user, start, end)
         worked_min = clocked_min + travel_min
-        open_count = user.sessions.filter(
-            clock_in__date__gte=start,
-            clock_in__date__lte=end,
-            clock_out__isnull=True,
-        ).count()
-        forgotten = user.sessions.filter(
-            clock_in__date__gte=start,
-            clock_in__date__lte=end,
-            is_forgotten=True,
-        ).count()
         vacation_remaining = Decimal(user.vacation_quota) - user.vacation_used
         rows.append({
             "user_id": user.id,
@@ -52,9 +96,9 @@ def build_monthly_rows(users, start: date_type, end: date_type) -> list[dict]:
             "worked_hours": round(worked_min / 60, 2),
             "clocked_minutes": clocked_min,
             "travel_compensable_minutes": travel_min,
-            "sessions_count": sessions.count(),
-            "open_sessions": open_count,
-            "forgotten_sessions": forgotten,
+            "sessions_count": s.get("sessions_count", 0),
+            "open_sessions": s.get("open_count", 0),
+            "forgotten_sessions": s.get("forgotten_count", 0),
             "overtime_balance_hours": float(user.overtime_balance),
             "vacation_quota": user.vacation_quota,
             "vacation_used": float(user.vacation_used),

@@ -517,23 +517,23 @@ class ClockSessionUpdateView(APIView):
                 },
                 status=status.HTTP_400_BAD_REQUEST,
             )
-        # ── Verrou mensuel (configurable) ────────────────────────────────
-        if not (request.user.is_superuser or getattr(request.user, "can_edit_locked_months", False)):
+        # ── Verrou mensuel (configurable) — délégué à services.month_lock ──
+        from services.month_lock import is_month_locked
+        # Bug D pré-audit : on doit vérifier tout horodatage qui peut affecter
+        # la date du mois bloqué (clock_in OU clock_in_rounded), pas que clock_in.
+        date_to_check = session.clock_in.date()
+        if "clock_in_rounded" in request.data and request.data.get("clock_in_rounded"):
+            from django.utils.dateparse import parse_datetime
+            new_dt = parse_datetime(request.data["clock_in_rounded"])
+            if new_dt:
+                date_to_check = min(date_to_check, new_dt.date())
+        if is_month_locked(request.user, date_to_check):
             policy = WorkTimePolicy.load()
-            today = timezone.localdate()
-            if today.day > policy.month_lock_day:
-                cutoff = today.replace(day=1)
-                if session.clock_in.date() < cutoff:
-                    bypass_ok = (
-                        policy.lock_bypass_roles == "any"
-                        or (policy.lock_bypass_roles == "manager" and request.user.is_manager)
-                    )
-                    if not bypass_ok:
-                        return Response(
-                            {"error": "MONTH_LOCKED",
-                             "detail": f"Les modifications sont bloquées après le {policy.month_lock_day} du mois."},
-                            status=status.HTTP_403_FORBIDDEN,
-                        )
+            return Response(
+                {"error": "MONTH_LOCKED",
+                 "detail": f"Les modifications sont bloquées après le {policy.month_lock_day} du mois."},
+                status=status.HTTP_403_FORBIDDEN,
+            )
 
         # ── Track justification submission for email notification ────────
         had_justification_before = bool(session.justification)
@@ -990,26 +990,45 @@ class ManagerTeamView(APIView):
             ).values_list("user_id", flat=True)
         )
 
+        # Optim : 3 requêtes agrégées au lieu de 3×N (où N = nb d'employés).
+        from django.db.models import Count, Q
+        user_ids = list(users.values_list("id", flat=True))
+        pending_missions_by_user = dict(
+            Mission.objects
+            .filter(user_id__in=user_ids, status=Mission.Status.PENDING)
+            .values("user_id").annotate(n=Count("id"))
+            .values_list("user_id", "n")
+        )
+        pending_absences_by_user = dict(
+            AbsenceRequest.objects
+            .filter(user_id__in=user_ids, status=AbsenceRequest.Status.PENDING)
+            .values("user_id").annotate(n=Count("id"))
+            .values_list("user_id", "n")
+        )
+        alerts_by_user = dict(
+            Alert.objects
+            .filter(user_id__in=user_ids, resolved_at__isnull=True)
+            .values("user_id").annotate(n=Count("id"))
+            .values_list("user_id", "n")
+        )
+        # Sessions de la semaine groupées par user (1 requête).
+        from collections import defaultdict
+        from services.sessions import merged_worked_minutes
+        sessions_by_user = defaultdict(list)
+        for s in ClockSession.objects.filter(
+            user_id__in=user_ids,
+            clock_in__date__gte=week_start,
+            clock_in__date__lte=week_end,
+            clock_out_rounded__isnull=False,
+        ):
+            sessions_by_user[s.user_id].append(s)
+
         rows = []
         for u in users:
-            week_sessions = ClockSession.objects.filter(
-                user=u,
-                clock_in__date__gte=week_start,
-                clock_in__date__lte=week_end,
-                clock_out_rounded__isnull=False,
-            )
-            from services.sessions import merged_worked_minutes
-            # Union d'intervalles pour ne pas double-compter les chevauchements.
-            worked_min = merged_worked_minutes(week_sessions)
-            pending_missions = Mission.objects.filter(
-                user=u, status=Mission.Status.PENDING,
-            ).count()
-            pending_absences = AbsenceRequest.objects.filter(
-                user=u, status=AbsenceRequest.Status.PENDING,
-            ).count()
-            unresolved_alerts = Alert.objects.filter(
-                user=u, resolved_at__isnull=True,
-            ).count()
+            worked_min = merged_worked_minutes(sessions_by_user.get(u.id, []))
+            pending_missions = pending_missions_by_user.get(u.id, 0)
+            pending_absences = pending_absences_by_user.get(u.id, 0)
+            unresolved_alerts = alerts_by_user.get(u.id, 0)
             if u.id in present_user_ids:
                 today_status = "present"
             elif u.id in absent_today_ids:

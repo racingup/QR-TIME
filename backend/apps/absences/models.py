@@ -30,7 +30,10 @@ class AbsenceRequest(models.Model):
         default=False,
         help_text="Si vrai, absent uniquement le matin du jour de fin.",
     )
-    status = models.CharField(max_length=10, choices=Status.choices, default=Status.PENDING)
+    status = models.CharField(
+        max_length=10, choices=Status.choices, default=Status.PENDING,
+        db_index=True,  # Filtre fréquent (PendingAbsencesView, recompute_vacation_used)
+    )
     user_comment = models.TextField(
         blank=True,
         help_text="Commentaire libre laissé par l'employé à la soumission.",
@@ -45,6 +48,12 @@ class AbsenceRequest(models.Model):
 
     class Meta:
         ordering = ["-created_at"]
+        indexes = [
+            # Hot path : recompute_vacation_used filtre par (user, absence_type, status).
+            models.Index(fields=["user", "absence_type", "status"]),
+            # Hot path : recherche par chevauchement de période (overlap check).
+            models.Index(fields=["user", "date_start", "date_end"]),
+        ]
 
     @property
     def days_count(self) -> float:

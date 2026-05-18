@@ -35,7 +35,10 @@ class Mission(models.Model):
         help_text="Numéro de mission attribué par le manager / mission manager / admin.",
     )
     qr_token = models.CharField(max_length=64, unique=True, null=True, blank=True)
-    status = models.CharField(max_length=10, choices=Status.choices, default=Status.PENDING)
+    status = models.CharField(
+        max_length=10, choices=Status.choices, default=Status.PENDING,
+        db_index=True,  # Filtre fréquent (PendingMissionsView, ManagerTeamView)
+    )
     approved_by = models.ForeignKey(
         settings.AUTH_USER_MODEL, on_delete=models.SET_NULL,
         null=True, blank=True, related_name="approved_missions",
@@ -70,6 +73,12 @@ class Mission(models.Model):
 
     class Meta:
         ordering = ["-created_at"]
+        indexes = [
+            # Hot path : ManagerTeamView agrège missions PENDING par user.
+            models.Index(fields=["user", "status"]),
+            # Hot path : recherche par période (mission overlap, calendrier).
+            models.Index(fields=["user", "date_start", "date_end"]),
+        ]
 
     def approve(self, manager, comment: str = "") -> None:
         self.status = self.Status.APPROVED

@@ -6,16 +6,50 @@ from datetime import datetime, time, timedelta
 
 from celery import shared_task
 from django.conf import settings
+from django.core.cache import cache
 from django.core.mail import send_mail
+from django.db import OperationalError
 from django.utils import timezone
+from smtplib import SMTPException
 
 from apps.clocking.models import Alert, ClockSession
 
 logger = logging.getLogger(__name__)
 
 
-@shared_task(name="apps.clocking.tasks.detect_forgotten_clockouts")
-def detect_forgotten_clockouts() -> dict:
+# ── Distributed lock helper ─────────────────────────────────────────────
+# Évite que deux instances de Celery (ou un beat dupliqué) lancent la
+# même tâche en parallèle et créent des doublons (alertes, emails…).
+class _LockAcquireFailed(Exception):
+    pass
+
+
+def _with_lock(lock_key: str, timeout_s: int = 300):
+    """Decorator simple : acquit un lock Redis via Django cache atomique."""
+    def deco(fn):
+        def wrapper(*args, **kwargs):
+            acquired = cache.add(lock_key, "1", timeout_s)
+            if not acquired:
+                logger.warning("Task %s already running (lock %s held).", fn.__name__, lock_key)
+                return {"skipped": True, "reason": "locked"}
+            try:
+                return fn(*args, **kwargs)
+            finally:
+                cache.delete(lock_key)
+        wrapper.__name__ = fn.__name__
+        return wrapper
+    return deco
+
+
+@shared_task(
+    name="apps.clocking.tasks.detect_forgotten_clockouts",
+    bind=True,
+    autoretry_for=(OperationalError, SMTPException),
+    retry_kwargs={"max_retries": 3, "countdown": 60},
+    retry_backoff=True,
+)
+@_with_lock("lock:detect_forgotten_clockouts", timeout_s=600)
+def detect_forgotten_clockouts(self=None) -> dict:
     """Find today's still-open ClockSessions, mark them forgotten, raise alerts.
 
     Idempotent: rerunning the task does not duplicate alerts (guarded by the

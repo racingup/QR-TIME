@@ -64,6 +64,14 @@ class ClockSession(models.Model):
         indexes = [
             models.Index(fields=["user", "clock_in"]),
             models.Index(fields=["clock_out"]),
+            # Hot path : sessions ouvertes par user (ScanView, presence)
+            models.Index(
+                fields=["user", "-clock_in"],
+                name="cs_user_open_idx",
+                condition=models.Q(clock_out__isnull=True),
+            ),
+            # Hot path : sessions de nuit (sessions_overlapping_day)
+            models.Index(fields=["user", "clock_in", "clock_out"]),
         ]
 
     @property

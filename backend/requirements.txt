@@ -11,3 +11,6 @@ python-dotenv==1.0.1
 gunicorn==21.2.0
 whitenoise==6.7.0
 requests==2.32.3
+
+# Observabilité prod (optionnel, activé via SENTRY_DSN env var)
+sentry-sdk[django,celery]==2.13.0
