@@ -121,6 +121,25 @@ class ScanView(APIView):
             .order_by("-clock_in")
             .first()
         )
+        # Garde-fou : si l'employé a une session ouverte d'un JOUR
+        # ANTÉRIEUR (oubli de pointage), on refuse le scan pour éviter
+        # une fermeture incohérente (durée monstrueuse, calculs faux).
+        # Il doit faire régulariser par son manager.
+        if open_session and open_session.clock_in.date() < timezone.localdate():
+            return Response(
+                {
+                    "error": "OPEN_SESSION_PREVIOUS_DAY",
+                    "detail": (
+                        f"Vous avez un pointage ouvert depuis le "
+                        f"{open_session.clock_in:%d/%m/%Y à %H:%M}. "
+                        f"Demandez à votre manager de régulariser cette "
+                        f"session avant de pointer à nouveau."
+                    ),
+                    "open_session_id": open_session.pk,
+                    "open_session_clock_in": open_session.clock_in.isoformat(),
+                },
+                status=status.HTTP_409_CONFLICT,
+            )
         action = "OUT" if open_session else "IN"
 
         # ── Apply rounding ─────────────────────────────────────────────
@@ -165,14 +184,15 @@ class ScanView(APIView):
                 )
             session.save()
 
-            # Final clock_out of the day → update overtime balance.
+            # Final clock_out of the day → reconcile overtime balance.
+            # Reconciliation idempotente : on recompute la somme de tous
+            # les jours pour éviter le double-comptage (cf. D8).
             still_open = ClockSession.objects.filter(
                 user=user, clock_out__isnull=True,
             ).exists()
             if not still_open:
-                delta = compute_overtime(user, today)
-                user.overtime_balance = (user.overtime_balance or 0) + delta
-                user.save(update_fields=["overtime_balance"])
+                from services.overtime import reconcile_overtime_balance
+                reconcile_overtime_balance(user)
 
         body = ClockSessionSerializer(session).data
         body["action"] = action
@@ -271,13 +291,15 @@ class DayDetailView(APIView):
         except UserProfile.DoesNotExist:
             return Response({"error": "USER_NOT_FOUND"}, status=status.HTTP_404_NOT_FOUND)
 
-        sessions = ClockSession.objects.filter(
-            user_id=user_id, clock_in__date=target_date,
-        ).select_related("site", "mission").order_by("clock_in")
-        from services.sessions import merged_worked_minutes
-        clocked_min = merged_worked_minutes(
-            s for s in sessions if s.clock_out_rounded
-        )
+        # Inclure les sessions qui démarrent la veille et se terminent ce
+        # jour-là (pointage de nuit) ou inverse. La requête couvre les
+        # bornes [day-1, day+1] puis on filtre/tronque côté Python.
+        from services.sessions import sessions_overlapping_day, worked_minutes_on_day
+        sessions_models = sessions_overlapping_day(user, target_date)
+        # Tri par clock_in pour affichage cohérent
+        sessions_models.sort(key=lambda s: s.clock_in)
+        sessions = sessions_models  # noms cohérents avec la suite
+        clocked_min = worked_minutes_on_day(user, target_date)
         # Trajet pro compensable (Art. 13 al. 3 OLT 1) — calculé au niveau
         # du jour pour ce user, à partir des sessions liées à des missions
         # FIELD approuvées. Voir `services/missions_travel.py`.
@@ -371,6 +393,27 @@ class ManualClockSessionView(APIView):
                 {"error": "INVALID_RANGE", "hint": "clock_out must be > clock_in"},
                 status=status.HTTP_400_BAD_REQUEST,
             )
+        # Garde-fou : pas de pointage de plus de 24h (anti-erreur de saisie
+        # qui ferait exploser overtime). Au-delà, demander de scinder.
+        if clock_out and (clock_out - clock_in).total_seconds() > 24 * 3600:
+            return Response(
+                {
+                    "error": "SPAN_TOO_LONG",
+                    "detail": (
+                        "Un pointage manuel ne peut excéder 24h. "
+                        "Veuillez créer deux pointages distincts."
+                    ),
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        # Pas de pointage manuel dans le futur (> aujourd'hui + 1 jour).
+        from datetime import timedelta as _td
+        if clock_in > timezone.now() + _td(days=1):
+            return Response(
+                {"error": "FUTURE_TIMESTAMP",
+                 "detail": "Un pointage ne peut être créé dans le futur."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
 
         # ── Anti-chevauchement : un pointage ne peut pas se superposer ────
         # à un autre pointage du même employé (même partiellement).
@@ -429,6 +472,10 @@ class ManualClockSessionView(APIView):
             details={"manual_creation": True, "session_type": session_type},
             request=request,
         )
+        # Recalcul du solde heures sup (la création manuelle peut concerner
+        # un jour déjà clôturé — on doit synchroniser le balance).
+        from services.overtime import reconcile_overtime_balance
+        reconcile_overtime_balance(user)
         return Response(ClockSessionSerializer(session).data, status=status.HTTP_201_CREATED)
 
 
@@ -534,6 +581,11 @@ class ClockSessionUpdateView(APIView):
         if not had_justification_before and session.justification:
             _notify_managers_justification(session, request.user)
 
+        # Recalcul du solde heures sup si on touche aux horodatages.
+        if {"clock_in", "clock_out", "clock_in_rounded", "clock_out_rounded"} & set(request.data.keys()):
+            from services.overtime import reconcile_overtime_balance
+            reconcile_overtime_balance(session.user)
+
         return Response(ClockSessionSerializer(session).data)
 
 
@@ -583,6 +635,9 @@ class ClockSessionDeleteView(APIView):
             details=snapshot,
             request=request,
         )
+        # Recompute overtime balance après suppression.
+        from services.overtime import reconcile_overtime_balance
+        reconcile_overtime_balance(target_user)
         return Response(status=status.HTTP_204_NO_CONTENT)
 
 
@@ -742,20 +797,24 @@ class UserMonthlyDetailView(APIView):
         except UserProfile.DoesNotExist:
             return Response({"error": "USER_NOT_FOUND_OR_OUT_OF_SCOPE"}, status=status.HTTP_404_NOT_FOUND)
 
+        # Élargir d'un jour de chaque côté pour capturer les sessions de nuit
+        # qui débordent sur les bornes (23:30 du dernier jour, 01:00 le 1er).
         sessions = (
             ClockSession.objects.filter(
                 user=user,
-                clock_in__date__gte=start, clock_in__date__lte=end_inclusive,
+                clock_in__date__gte=start - timedelta(days=1),
+                clock_in__date__lte=end_inclusive,
             )
             .select_related("site", "mission")
             .order_by("clock_in")
         )
         by_day = defaultdict(list)
-        by_day_models = defaultdict(list)  # pour le calcul union d'intervalles
         for s in sessions:
             key = s.clock_in.date().isoformat()
-            by_day[key].append(ClockSessionSerializer(s).data)
-            by_day_models[key].append(s)
+            # Affichage : la session apparaît sur le jour de son clock_in
+            # (un pointage 23:30→01:00 reste affiché sur le jour du clock_in)
+            if start <= s.clock_in.date() <= end_inclusive:
+                by_day[key].append(ClockSessionSerializer(s).data)
 
         # Approved absences overlapping this month.
         absences = AbsenceRequest.objects.filter(
@@ -784,18 +843,15 @@ class UserMonthlyDetailView(APIView):
                 holidays[h.date.isoformat()] = h.name
 
         from services.missions_travel import daily_travel_compensable_minutes
-        from services.sessions import merged_worked_minutes
+        from services.sessions import worked_minutes_on_day
 
         days = []
         cur = start
         while cur <= end_inclusive:
             key = cur.isoformat()
             day_sessions = by_day.get(key, [])
-            # Union d'intervalles sur les modèles (pas les dicts sérialisés)
-            day_models = by_day_models.get(key, [])
-            clocked_min = merged_worked_minutes(
-                s for s in day_models if s.clock_out_rounded
-            )
+            # Calcul fiable même pour les sessions traversant minuit
+            clocked_min = worked_minutes_on_day(user, cur)
             travel_min = daily_travel_compensable_minutes(user, cur)
             worked_min = clocked_min + travel_min
             days.append({

@@ -35,15 +35,29 @@ api.interceptors.request.use((config) => {
 
 let refreshing = null
 
+function _redirectToLogin() {
+  // Évite la boucle si on est déjà sur /login ou /privacy (publiques).
+  const path = window.location.pathname
+  if (path === '/login' || path === '/privacy') return
+  // ?expired=1 permet à la LoginPage d'afficher un message clair.
+  window.location.assign('/login?expired=1')
+}
+
 api.interceptors.response.use(
   (resp) => resp,
   async (error) => {
     const original = error.config
-    if (error.response?.status !== 401 || original._retry) {
+    if (error.response?.status !== 401 || original?._retry) {
+      // 401 sans config (ex : refresh lui-même qui échoue) → forcer login.
+      if (error.response?.status === 401) {
+        tokens.clear()
+        _redirectToLogin()
+      }
       return Promise.reject(error)
     }
     if (!tokens.refresh) {
       tokens.clear()
+      _redirectToLogin()
       return Promise.reject(error)
     }
     original._retry = true
@@ -65,6 +79,8 @@ api.interceptors.response.use(
       original.headers.Authorization = `Bearer ${newAccess}`
       return api(original)
     } catch {
+      // Refresh token lui aussi expiré → redirect login propre.
+      _redirectToLogin()
       return Promise.reject(error)
     }
   },

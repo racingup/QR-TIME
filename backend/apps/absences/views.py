@@ -59,9 +59,44 @@ class AbsenceCreateView(generics.CreateAPIView):
         user = self.request.user
         date_start = serializer.validated_data.get("date_start")
         date_end = serializer.validated_data.get("date_end")
+        absence_type = serializer.validated_data.get("absence_type")
+        half_day_start = serializer.validated_data.get("half_day_start", False)
+        half_day_end = serializer.validated_data.get("half_day_end", False)
+
+        # Validation de cohérence basique : date_end >= date_start.
+        if date_end < date_start:
+            raise ValidationError("La date de fin doit être ≥ à la date de début.")
 
         # Overlap guard: reject if an approved absence already covers these dates.
         _check_overlap(user, date_start, date_end)
+
+        # Validation du quota pour les CONGÉS uniquement.
+        if absence_type == AbsenceRequest.AbsenceType.VACATION:
+            # Calculer les jours demandés (logique alignée sur days_count property).
+            whole = (date_end - date_start).days + 1
+            if date_start == date_end:
+                if half_day_start and half_day_end:
+                    requested = 0.0
+                elif half_day_start or half_day_end:
+                    requested = 0.5
+                else:
+                    requested = float(whole)
+            else:
+                delta = 0.0
+                if half_day_start:
+                    delta += 0.5
+                if half_day_end:
+                    delta += 0.5
+                requested = whole - delta
+
+            from services.vacation import recompute_vacation_used
+            current_used = recompute_vacation_used(user)
+            remaining = Decimal(user.vacation_quota) - current_used
+            if Decimal(str(requested)) > remaining:
+                raise ValidationError(
+                    f"Solde de congés insuffisant : vous demandez {requested:.1f} "
+                    f"jour(s), il vous reste {remaining:.1f} jour(s)."
+                )
 
         instance = serializer.save(user=user, status=AbsenceRequest.Status.PENDING)
 
@@ -139,10 +174,10 @@ class AbsenceApproveView(APIView):
         absence.manager_comment = payload.validated_data.get("manager_comment", "")
         absence.save()
 
-        # GAZNAT: si l'absence approuvée est SICK et chevauche des congés
-        # VACATION déjà approuvés → réduire le quota utilisé (recréditer).
-        if absence.absence_type == AbsenceRequest.AbsenceType.SICK:
-            _recredite_vacation_for_sick_overlap(absence)
+        # Recompute vacation_used : couvre VACATION approvée, SICK qui
+        # chevauche, et toute combinaison (logique GAZNAT centralisée).
+        from services.vacation import recompute_vacation_used
+        recompute_vacation_used(absence.user)
 
         return Response(AbsenceRequestSerializer(absence).data, status=status.HTTP_200_OK)
 
@@ -162,10 +197,16 @@ class AbsenceRejectView(APIView):
             )
         payload = AbsenceDecisionSerializer(data=request.data)
         payload.is_valid(raise_exception=True)
+        # On peut passer d'APPROVED → REJECTED ; il faut alors recalculer
+        # (vacation_used baisse car cette absence n'est plus comptée).
+        was_approved = (absence.status == AbsenceRequest.Status.APPROVED)
         absence.status = AbsenceRequest.Status.REJECTED
         absence.approved_by = request.user
         absence.manager_comment = payload.validated_data.get("manager_comment", "")
         absence.save()
+        if was_approved:
+            from services.vacation import recompute_vacation_used
+            recompute_vacation_used(absence.user)
         return Response(AbsenceRequestSerializer(absence).data)
 
 
@@ -193,6 +234,9 @@ class AbsenceUpdateView(APIView):
         ser = AbsenceRequestSerializer(absence, data=request.data, partial=True)
         ser.is_valid(raise_exception=True)
         ser.save()
+        # L'édition peut changer dates, type ou status → recalcul du quota.
+        from services.vacation import recompute_vacation_used
+        recompute_vacation_used(absence.user)
         return Response(ser.data)
 
 
@@ -210,6 +254,8 @@ class AbsenceCancelView(APIView):
                 {"error": "NOT_CANCELLABLE", "detail": "Seules les demandes en attente peuvent être annulées."},
                 status=status.HTTP_409_CONFLICT,
             )
+        # Une demande PENDING n'a jamais incrémenté vacation_used, donc
+        # pas de recompute nécessaire ici.
         absence.status = AbsenceRequest.Status.REJECTED
         absence.manager_comment = "Annulé par l'employé."
         absence.save(update_fields=["status", "manager_comment"])

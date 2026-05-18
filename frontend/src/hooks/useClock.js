@@ -48,10 +48,12 @@ export function useClock() {
         setState({ status: 'gps_out_of_range', data: body })
       } else if (e.response?.status === 403 && body?.error === 'EXEMPT_FROM_CLOCKING') {
         setState({ status: 'exempt', data: body })
+      } else if (e.response?.status === 409 && body?.error === 'OPEN_SESSION_PREVIOUS_DAY') {
+        setState({ status: 'open_session_previous_day', data: body })
       } else if (e.response?.status === 404) {
         setState({ status: 'error', error: 'QR inconnu' })
       } else {
-        setState({ status: 'error', error: body?.error || body?.detail || 'Erreur serveur' })
+        setState({ status: 'error', error: body?.detail || body?.error || 'Erreur serveur' })
       }
       return null
     }

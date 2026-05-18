@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { Link, useNavigate } from 'react-router-dom'
+import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import { useAuth } from '../hooks/useAuth'
 import { useCompany } from '../hooks/useCompany'
 
@@ -7,6 +7,8 @@ export default function LoginPage() {
   const { login } = useAuth()
   const { company } = useCompany()
   const navigate = useNavigate()
+  const [params] = useSearchParams()
+  const sessionExpired = params.get('expired') === '1'
   const [username, setUsername] = useState('')
   const [password, setPassword] = useState('')
   const [error, setError] = useState(null)
@@ -44,6 +46,11 @@ export default function LoginPage() {
             <p className="text-xs uppercase tracking-widest text-slate-500 mt-3">{brandName}</p>
             <h1 className="text-2xl font-semibold tracking-tight mt-1">Connexion</h1>
           </div>
+          {sessionExpired && !error && (
+            <p className="text-sm text-amber-700 bg-amber-50 rounded-xl px-3 py-2 text-center">
+              Votre session a expiré. Veuillez vous reconnecter.
+            </p>
+          )}
           <input
             className="glass-input w-full"
             placeholder="Nom d'utilisateur"

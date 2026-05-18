@@ -12,14 +12,23 @@ export default function ScanPage() {
   const [uploadError, setUploadError] = useState(null)
   const [decoding, setDecoding] = useState(false)
   const [gpsConsent, setGpsConsent] = useState(null) // null=loading, true/false
+  const [exempt, setExempt] = useState(null)         // null=loading, true/false
   const fileInputRef = useRef(null)
   const navigate = useNavigate()
 
+  // Charger summary + consent en parallèle. Si l'utilisateur est exempt,
+  // on n'affiche jamais la gate GPS — il n'a pas besoin de pointer.
   useEffect(() => {
-    meApi.consent
-      .get()
-      .then((c) => setGpsConsent(c.gps?.granted === true))
-      .catch(() => setGpsConsent(false))
+    let cancelled = false
+    Promise.all([
+      meApi.summary().catch(() => null),
+      meApi.consent.get().catch(() => null),
+    ]).then(([summary, consent]) => {
+      if (cancelled) return
+      setExempt(Boolean(summary?.exempt_from_clocking))
+      setGpsConsent(consent?.gps?.granted === true)
+    })
+    return () => { cancelled = true }
   }, [])
 
   const grantConsent = async () => {
@@ -65,6 +74,35 @@ export default function ScanPage() {
 
   const fmtTime = (iso) => iso ? new Date(iso).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' }) : ''
 
+  // Loading initial — on attend exempt + consent.
+  if (exempt === null || gpsConsent === null) {
+    return <p className="p-6 text-center text-slate-500">Chargement…</p>
+  }
+
+  // Employé non soumis au timbrage : on affiche un écran dédié SANS
+  // demander la permission GPS (qui ne servirait à rien).
+  if (exempt) {
+    return (
+      <div className="min-h-screen flex flex-col items-center justify-center px-4 safe-bottom">
+        <div className="glass-strong rounded-3xl p-6 max-w-sm w-full space-y-3 text-center">
+          <p className="text-3xl">✓</p>
+          <h1 className="text-lg font-semibold">Vous n'êtes pas soumis au timbrage</h1>
+          <p className="text-sm text-slate-600">
+            Votre temps de travail est suivi via la planification, pas
+            via le pointage QR. Aucun scan n'est nécessaire.
+          </p>
+          <button
+            type="button"
+            onClick={() => navigate('/')}
+            className="pill pill-primary mt-2"
+          >
+            Retour à l'accueil
+          </button>
+        </div>
+      </div>
+    )
+  }
+
   // GPS consent gate (Art. 6 al. 6 LPD — consentement explicite pour le GPS)
   if (gpsConsent === false) {
     return (
@@ -95,10 +133,6 @@ export default function ScanPage() {
         </div>
       </div>
     )
-  }
-
-  if (gpsConsent === null) {
-    return <p className="p-6 text-center text-slate-500">Chargement…</p>
   }
 
   return (
@@ -271,6 +305,23 @@ export default function ScanPage() {
           <p className="text-sm text-slate-600 mt-2">{state.error.message}</p>
           <button type="button" onClick={handleReset} className="pill pill-ghost mt-5">
             Réessayer
+          </button>
+        </div>
+      )}
+
+      {state.status === 'open_session_previous_day' && (
+        <div className="glass-strong rounded-3xl p-6 max-w-sm w-full text-center mt-6">
+          <p className="text-5xl">⏳</p>
+          <p className="font-semibold text-amber-700 mt-2">Pointage non clôturé</p>
+          <p className="text-sm text-slate-700 mt-3">
+            {state.data?.detail}
+          </p>
+          <p className="text-xs text-slate-500 mt-2">
+            Vous ne pouvez pas pointer tant que cette session n'est pas
+            régularisée par votre manager.
+          </p>
+          <button type="button" onClick={handleReset} className="pill pill-ghost mt-5">
+            Compris
           </button>
         </div>
       )}

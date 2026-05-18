@@ -320,6 +320,15 @@ function ManualSessionModal({ userId, username, date, onClose, onSaved }) {
   const [err, setErr] = useState(null)
 
   const onSave = async () => {
+    // Validation front : clock_out > clock_in et non vide.
+    if (!form.clock_in || !form.clock_out) {
+      setErr('Veuillez renseigner les deux horodatages.')
+      return
+    }
+    if (new Date(form.clock_out) <= new Date(form.clock_in)) {
+      setErr('La sortie doit être postérieure à l\'entrée.')
+      return
+    }
     setSaving(true)
     setErr(null)
     try {
@@ -335,6 +344,10 @@ function ManualSessionModal({ userId, username, date, onClose, onSaved }) {
       const data = e.response?.data
       if (data?.error === 'OVERLAPPING_SESSION') {
         setErr(data.detail || 'Un pointage existe déjà sur cette période.')
+      } else if (data?.error === 'SPAN_TOO_LONG') {
+        setErr(data.detail || 'Pointage trop long.')
+      } else if (data?.error === 'FUTURE_TIMESTAMP') {
+        setErr(data.detail || 'Pointage dans le futur impossible.')
       } else {
         setErr(data?.detail || data?.error || e.message)
       }

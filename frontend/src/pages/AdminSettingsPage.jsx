@@ -5,49 +5,165 @@ import MapPicker from '../components/MapPicker'
 import { useAuth } from '../hooks/useAuth'
 import { useCompany } from '../hooks/useCompany'
 
+// ── Navigation groups ──────────────────────────────────────────────────────
+
+const NAV_GROUPS = [
+  {
+    id: 'organisation',
+    icon: '🏢',
+    label: 'Organisation',
+    tabs: [
+      { id: 'sites',   icon: '📍', label: 'Sites & fériés',  desc: 'Sites de travail, périmètre GPS, jours fériés' },
+      { id: 'company', icon: '🏭', label: 'Entreprise',      desc: 'Nom, logo, couleurs, contact RGPD', su: true },
+    ],
+  },
+  {
+    id: 'pointage',
+    icon: '⏱',
+    label: 'Pointage',
+    tabs: [
+      { id: 'work-time',  icon: '⚙',  label: 'Règles de travail', desc: 'Majorations, pauses, verrou mensuel', su: true },
+      { id: 'slots',      icon: '🕐', label: 'Plages horaires',    desc: 'Plages fixes et justifications hors-plage' },
+      { id: 'tolerance',  icon: '↕',  label: 'Arrondis',          desc: 'Tolérance et direction d\'arrondi' },
+    ],
+  },
+  {
+    id: 'equipe',
+    icon: '👥',
+    label: 'Équipe',
+    tabs: [
+      { id: 'users', icon: '👤', label: 'Utilisateurs', desc: 'Comptes, rôles, quotas, managers', su: true },
+    ],
+  },
+  {
+    id: 'conformite',
+    icon: '🔐',
+    label: 'Conformité',
+    su: true,
+    tabs: [
+      { id: 'deletion-requests', icon: '🗑', label: 'Demandes RGPD',    desc: 'Suppressions de compte Art. 32 LPD', su: true },
+      { id: 'audit',             icon: '📋', label: 'Journal d\'audit', desc: 'Traçabilité des actions administrateurs', su: true },
+    ],
+  },
+]
+
 export default function AdminSettingsPage() {
   const { user } = useAuth()
-  const canEditUsers = Boolean(user?.is_superuser)
-  const tabs = [
-    { id: 'sites', label: 'Sites' },
-    { id: 'slots', label: 'Plages fixes' },
-    { id: 'tolerance', label: 'Arrondis' },
-    ...(canEditUsers ? [{ id: 'work-time', label: 'Règles de travail' }] : []),
-    ...(canEditUsers ? [{ id: 'users', label: 'Utilisateurs' }] : []),
-    ...(canEditUsers ? [{ id: 'company', label: 'Entreprise' }] : []),
-    ...(canEditUsers ? [{ id: 'deletion-requests', label: 'Demandes RGPD' }] : []),
-    ...(canEditUsers ? [{ id: 'audit', label: 'Audit' }] : []),
-  ]
-  const [tab, setTab] = useState('sites')
+  const isSu = Boolean(user?.is_superuser)
+
+  // Default to first accessible tab
+  const firstTab = NAV_GROUPS.flatMap((g) => g.tabs)
+    .find((t) => !t.su || isSu)?.id ?? 'sites'
+  const [tab, setTab] = useState(firstTab)
+
+  // Derive active group from active tab
+  const activeGroup = NAV_GROUPS.find((g) => g.tabs.some((t) => t.id === tab))
+
+  const visibleGroups = NAV_GROUPS.filter((g) => !g.su || isSu)
+  const visibleTabs = (g) => g.tabs.filter((t) => !t.su || isSu)
+
   return (
-    <div className="max-w-5xl mx-auto p-3 sm:p-6">
-      <h1 className="text-xl sm:text-2xl font-semibold mb-4">Paramètres</h1>
-      {/* Sur mobile : 7 onglets impossibles à afficher → scroll horizontal.
-          `-mx-3 px-3` étend la zone scrollable bord-à-bord du viewport. */}
-      <nav className="flex gap-2 border-b mb-4 overflow-x-auto -mx-3 px-3 sm:mx-0 sm:px-0">
-        {tabs.map((t) => (
-          <button
-            key={t.id}
-            type="button"
-            onClick={() => setTab(t.id)}
-            className={`px-3 sm:px-4 py-2 text-sm whitespace-nowrap shrink-0 ${
-              tab === t.id
-                ? 'border-b-2 border-blue-600 text-blue-700'
-                : 'text-gray-600'
-            }`}
-          >
-            {t.label}
-          </button>
-        ))}
-      </nav>
-      {tab === 'sites' && <SitesTab />}
-      {tab === 'slots' && <SlotsTab />}
-      {tab === 'tolerance' && <ToleranceTab />}
-      {tab === 'work-time' && canEditUsers && <WorkTimeTab />}
-      {tab === 'users' && canEditUsers && <UsersTab />}
-      {tab === 'company' && canEditUsers && <CompanyTab />}
-      {tab === 'deletion-requests' && canEditUsers && <DeletionRequestsTab />}
-      {tab === 'audit' && canEditUsers && <AuditTab />}
+    <div className="max-w-6xl mx-auto px-3 pt-2 pb-12 sm:px-6">
+      <h1 className="text-xl font-semibold tracking-tight mb-5">Paramètres</h1>
+
+      <div className="flex gap-6 items-start">
+
+        {/* ── Sidebar (desktop) ──────────────────────────────────────── */}
+        <aside className="hidden md:flex flex-col gap-1 w-52 shrink-0 sticky top-20">
+          {visibleGroups.map((g) => (
+            <div key={g.id} className="mb-1">
+              <p className="text-[10px] uppercase tracking-widest text-slate-400 font-semibold px-3 py-1.5 flex items-center gap-1.5">
+                <span>{g.icon}</span>{g.label}
+              </p>
+              {visibleTabs(g).map((t) => (
+                <button
+                  key={t.id}
+                  type="button"
+                  onClick={() => setTab(t.id)}
+                  className={`press w-full text-left px-3 py-2 rounded-xl text-sm transition flex items-center gap-2 ${
+                    tab === t.id
+                      ? 'bg-slate-900 text-white shadow'
+                      : 'text-slate-600 hover:bg-white/60'
+                  }`}
+                >
+                  <span className="text-base leading-none">{t.icon}</span>
+                  <span>{t.label}</span>
+                </button>
+              ))}
+            </div>
+          ))}
+        </aside>
+
+        {/* ── Content ────────────────────────────────────────────────── */}
+        <div className="flex-1 min-w-0 space-y-4">
+
+          {/* Mobile: group chips then sub-tab pills */}
+          <div className="md:hidden space-y-2">
+            <div className="flex gap-2 overflow-x-auto pb-1">
+              {visibleGroups.map((g) => (
+                <button
+                  key={g.id}
+                  type="button"
+                  onClick={() => { const first = visibleTabs(g)[0]; if (first) setTab(first.id) }}
+                  className={`press shrink-0 flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium transition ${
+                    activeGroup?.id === g.id
+                      ? 'bg-slate-900 text-white'
+                      : 'glass-soft text-slate-600'
+                  }`}
+                >
+                  <span>{g.icon}</span>{g.label}
+                </button>
+              ))}
+            </div>
+            {activeGroup && visibleTabs(activeGroup).length > 1 && (
+              <div className="flex gap-2 overflow-x-auto pb-1">
+                {visibleTabs(activeGroup).map((t) => (
+                  <button
+                    key={t.id}
+                    type="button"
+                    onClick={() => setTab(t.id)}
+                    className={`press shrink-0 flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs transition ${
+                      tab === t.id
+                        ? 'bg-slate-700 text-white'
+                        : 'glass text-slate-600'
+                    }`}
+                  >
+                    <span>{t.icon}</span>{t.label}
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+
+          {/* Breadcrumb + page title */}
+          {activeGroup && (() => {
+            const currentTab = activeGroup.tabs.find((t2) => t2.id === tab)
+            return currentTab ? (
+              <div className="flex items-start gap-3">
+                <div className="flex-1">
+                  <p className="text-xs text-slate-400 flex items-center gap-1">
+                    <span>{activeGroup.icon}</span>
+                    <span>{activeGroup.label}</span>
+                    <span className="mx-1">›</span>
+                    <span>{currentTab.label}</span>
+                  </p>
+                  <p className="text-xs text-slate-500 mt-0.5">{currentTab.desc}</p>
+                </div>
+              </div>
+            ) : null
+          })()}
+
+          {/* Tab panels */}
+          {tab === 'sites'              && <SitesTab />}
+          {tab === 'slots'              && <SlotsTab />}
+          {tab === 'tolerance'          && <ToleranceTab />}
+          {tab === 'work-time'   && isSu && <WorkTimeTab />}
+          {tab === 'users'       && isSu && <UsersTab />}
+          {tab === 'company'     && isSu && <CompanyTab />}
+          {tab === 'deletion-requests' && isSu && <DeletionRequestsTab />}
+          {tab === 'audit'       && isSu && <AuditTab />}
+        </div>
+      </div>
     </div>
   )
 }
@@ -103,11 +219,11 @@ function CompanyTab() {
 
   return (
     <form onSubmit={onSubmit} className="space-y-5 max-w-2xl">
-      <section className="bg-amber-50 border-l-4 border-amber-400 p-3 text-sm space-y-1">
-        <p className="font-medium text-amber-900">
-          Configuration entreprise
+      <section className="glass-soft rounded-xl p-4 text-sm space-y-1">
+        <p className="font-semibold text-slate-800">
+          🏭 Configuration entreprise
         </p>
-        <p className="text-amber-800 text-xs">
+        <p className="text-slate-600 text-xs">
           Ces informations sont utilisées par la <strong>politique de
           confidentialité</strong> (interpolation : nom du responsable, contact
           DPO, adresse — Art. 14 LPD) et par le <strong>branding</strong> de
@@ -118,12 +234,12 @@ function CompanyTab() {
 
       {/* ── Identification ── */}
       <fieldset className="space-y-3">
-        <legend className="font-medium">Identification</legend>
+        <legend className="text-sm font-semibold text-slate-600 uppercase tracking-wider mb-1">Identification</legend>
         <div className="grid grid-cols-2 gap-2">
           <label className="text-sm col-span-2">
             Raison sociale
             <input
-              type="text" className="border rounded p-2 w-full mt-1"
+              type="text" className="glass-input w-full mt-1"
               value={form.name || ''}
               onChange={(e) => set({ name: e.target.value })}
               placeholder="Acme SA"
@@ -132,7 +248,7 @@ function CompanyTab() {
           <label className="text-sm">
             Forme juridique
             <input
-              type="text" className="border rounded p-2 w-full mt-1"
+              type="text" className="glass-input w-full mt-1"
               value={form.legal_form || ''}
               onChange={(e) => set({ legal_form: e.target.value })}
               placeholder="SA / Sàrl / AG / GmbH / …"
@@ -141,7 +257,7 @@ function CompanyTab() {
           <label className="text-sm">
             Pays
             <input
-              type="text" className="border rounded p-2 w-full mt-1"
+              type="text" className="glass-input w-full mt-1"
               value={form.country || ''}
               onChange={(e) => set({ country: e.target.value })}
             />
@@ -151,7 +267,7 @@ function CompanyTab() {
         <label className="text-sm block">
           Adresse
           <input
-            type="text" className="border rounded p-2 w-full mt-1"
+            type="text" className="glass-input w-full mt-1"
             value={form.address_line || ''}
             onChange={(e) => set({ address_line: e.target.value })}
             placeholder="Rue de l'Industrie 12"
@@ -161,7 +277,7 @@ function CompanyTab() {
           <label className="text-sm">
             NPA
             <input
-              type="text" className="border rounded p-2 w-full mt-1"
+              type="text" className="glass-input w-full mt-1"
               value={form.postal_code || ''}
               onChange={(e) => set({ postal_code: e.target.value })}
               maxLength={10}
@@ -170,7 +286,7 @@ function CompanyTab() {
           <label className="text-sm col-span-2">
             Ville
             <input
-              type="text" className="border rounded p-2 w-full mt-1"
+              type="text" className="glass-input w-full mt-1"
               value={form.city || ''}
               onChange={(e) => set({ city: e.target.value })}
             />
@@ -180,14 +296,14 @@ function CompanyTab() {
 
       {/* ── Contact protection des données ── */}
       <fieldset className="space-y-3">
-        <legend className="font-medium">
-          Contact protection des données <span className="text-xs text-slate-500">(Art. 14 LPD)</span>
+        <legend className="text-sm font-semibold text-slate-600 uppercase tracking-wider mb-1">
+          Protection des données <span className="text-xs font-normal normal-case tracking-normal">(Art. 14 LPD)</span>
         </legend>
         <div className="grid grid-cols-2 gap-2">
           <label className="text-sm">
             Email DPO
             <input
-              type="email" className="border rounded p-2 w-full mt-1"
+              type="email" className="glass-input w-full mt-1"
               value={form.dpo_contact_email || ''}
               onChange={(e) => set({ dpo_contact_email: e.target.value })}
               placeholder="dpo@entreprise.ch"
@@ -196,7 +312,7 @@ function CompanyTab() {
           <label className="text-sm">
             Téléphone (optionnel)
             <input
-              type="tel" className="border rounded p-2 w-full mt-1"
+              type="tel" className="glass-input w-full mt-1"
               value={form.dpo_contact_phone || ''}
               onChange={(e) => set({ dpo_contact_phone: e.target.value })}
               placeholder="+41 …"
@@ -206,7 +322,7 @@ function CompanyTab() {
         <label className="text-sm block">
           Texte additionnel pour la politique de confidentialité (optionnel)
           <textarea
-            className="border rounded p-2 w-full mt-1 h-24"
+            className="glass-input w-full mt-1 h-24"
             value={form.privacy_policy_extra || ''}
             onChange={(e) => set({ privacy_policy_extra: e.target.value })}
             placeholder="Mentions sectorielles, sous-traitants spécifiques, …"
@@ -216,7 +332,7 @@ function CompanyTab() {
 
       {/* ── Branding ── */}
       <fieldset className="space-y-3">
-        <legend className="font-medium">Branding</legend>
+        <legend className="text-sm font-semibold text-slate-600 uppercase tracking-wider mb-1">Branding</legend>
         <div className="grid grid-cols-[1fr_120px] gap-3 items-start">
           <label className="text-sm block">
             Logo (PNG / JPG / SVG — redimensionné à 256 px max)
@@ -229,13 +345,13 @@ function CompanyTab() {
               <button
                 type="button"
                 onClick={() => set({ logo_data_url: '' })}
-                className="text-xs text-rose-700 hover:underline mt-1"
+                className="text-xs text-rose-600 hover:underline mt-1"
               >
                 Effacer le logo
               </button>
             )}
           </label>
-          <div className="border rounded p-2 bg-white text-center">
+          <div className="glass-soft rounded-xl p-2 text-center">
             <p className="text-[10px] text-slate-500 mb-1">aperçu</p>
             {form.logo_data_url ? (
               <img
@@ -254,13 +370,13 @@ function CompanyTab() {
             <div className="flex items-center gap-2 mt-1">
               <input
                 type="color"
-                className="h-10 w-14 border rounded cursor-pointer"
+                className="h-10 w-14 rounded-lg cursor-pointer border border-white/40"
                 value={form.primary_color || '#1e3a5f'}
                 onChange={(e) => set({ primary_color: e.target.value })}
               />
               <input
                 type="text"
-                className="border rounded p-2 flex-1 font-mono text-xs"
+                className="glass-input flex-1 font-mono text-xs"
                 value={form.primary_color || ''}
                 onChange={(e) => set({ primary_color: e.target.value })}
                 placeholder="#1e3a5f"
@@ -273,13 +389,13 @@ function CompanyTab() {
             <div className="flex items-center gap-2 mt-1">
               <input
                 type="color"
-                className="h-10 w-14 border rounded cursor-pointer"
+                className="h-10 w-14 rounded-lg cursor-pointer border border-white/40"
                 value={form.secondary_color || '#10b981'}
                 onChange={(e) => set({ secondary_color: e.target.value })}
               />
               <input
                 type="text"
-                className="border rounded p-2 flex-1 font-mono text-xs"
+                className="glass-input flex-1 font-mono text-xs"
                 value={form.secondary_color || ''}
                 onChange={(e) => set({ secondary_color: e.target.value })}
                 placeholder="#10b981"
@@ -291,12 +407,12 @@ function CompanyTab() {
       </fieldset>
 
       {err && (
-        <p className="text-xs text-rose-700 bg-rose-50 rounded p-2 break-all">
+        <p className="text-xs text-rose-700 glass-soft rounded-xl p-3 break-all">
           ⚠ {err}
         </p>
       )}
       {savedAt && !err && (
-        <p className="text-xs text-emerald-700">
+        <p className="text-xs text-emerald-700 glass-soft rounded-xl p-3">
           ✓ Enregistré à {savedAt.toLocaleTimeString('fr-FR')} — appliqué partout dans l'app.
         </p>
       )}
@@ -304,7 +420,7 @@ function CompanyTab() {
       <div className="flex justify-end">
         <button
           type="submit" disabled={saving}
-          className="bg-blue-600 text-white px-5 py-2 rounded disabled:opacity-50"
+          className="pill pill-primary disabled:opacity-50"
         >
           {saving ? 'Enregistrement…' : 'Enregistrer'}
         </button>
@@ -373,11 +489,11 @@ function DeletionRequestsTab() {
 
   return (
     <div className="space-y-4">
-      <div className="bg-blue-50 border-l-4 border-blue-400 p-3 text-sm space-y-1">
-        <p className="font-medium text-blue-900">
-          Inbox RH — demandes de suppression de compte (Art. 32 al. 2 LPD)
+      <div className="glass-soft rounded-xl p-4 text-sm space-y-1">
+        <p className="font-semibold text-slate-800">
+          📥 Inbox RH — demandes de suppression de compte (Art. 32 al. 2 LPD)
         </p>
-        <p className="text-blue-800 text-xs">
+        <p className="text-slate-600 text-xs">
           <strong>Approuver</strong> déclenche immédiatement l'anonymisation
           du compte (nom, email, mot de passe effacés, username remplacé par
           <code> deleted_N</code>). Les pointages sont préservés mais anonymes.
@@ -388,14 +504,14 @@ function DeletionRequestsTab() {
         </p>
       </div>
 
-      <div className="flex gap-2">
+      <div className="flex gap-2 flex-wrap">
         {['PENDING', 'APPROVED', 'REJECTED', 'ALL'].map((s) => (
           <button
             key={s}
             type="button"
             onClick={() => setFilter(s)}
-            className={`text-xs px-3 py-1 rounded-full ${
-              filter === s ? 'bg-slate-900 text-white' : 'bg-white border'
+            className={`text-xs px-3 py-1.5 rounded-full press transition ${
+              filter === s ? 'bg-slate-900 text-white' : 'glass-soft text-slate-700'
             }`}
           >
             {s === 'ALL' ? 'Tout' : s === 'PENDING' ? 'En attente' : s === 'APPROVED' ? 'Approuvées' : 'Refusées'}
@@ -406,13 +522,13 @@ function DeletionRequestsTab() {
       {loading ? (
         <p className="text-sm text-slate-500">Chargement…</p>
       ) : rows.length === 0 ? (
-        <p className="text-sm text-slate-500 bg-slate-50 rounded p-4 text-center">
+        <p className="text-sm text-slate-500 glass-soft rounded-xl p-4 text-center">
           Aucune demande pour ce filtre.
         </p>
       ) : (
-        <ul className="space-y-2">
+        <ul className="space-y-3">
           {rows.map((r) => (
-            <li key={r.id} className="bg-white border rounded-lg p-3 space-y-2">
+            <li key={r.id} className="glass-soft rounded-xl p-4 space-y-2">
               <div className="flex flex-wrap items-center gap-3 text-sm">
                 <span className="font-mono text-xs text-slate-500">#{r.id}</span>
                 <span className="font-semibold">{r.username}</span>
@@ -421,16 +537,16 @@ function DeletionRequestsTab() {
                   soumise le {fmt(r.created_at)}
                 </span>
                 <span className={`text-xs px-2 py-0.5 rounded-full ${badge[r.status]}`}>
-                  {r.status}
+                  {r.status === 'PENDING' ? 'En attente' : r.status === 'APPROVED' ? 'Approuvée' : 'Refusée'}
                 </span>
               </div>
               {r.user_reason && (
-                <p className="text-sm text-slate-700 bg-slate-50 rounded px-2 py-1 italic">
+                <p className="text-sm text-slate-700 glass rounded-xl px-3 py-2 italic">
                   💬 « {r.user_reason} »
                 </p>
               )}
               {r.admin_comment && (
-                <p className="text-sm text-slate-700 bg-blue-50 rounded px-2 py-1">
+                <p className="text-sm text-slate-700 glass-soft rounded-xl px-3 py-2">
                   <span className="text-xs text-slate-500">Admin ({r.decided_by_username}) :</span>{' '}
                   {r.admin_comment}
                 </p>
@@ -440,7 +556,7 @@ function DeletionRequestsTab() {
                   <button
                     type="button"
                     onClick={() => setDecisionFor({ req: r, action: 'approve' })}
-                    className="text-xs px-3 py-1 rounded bg-rose-600 text-white"
+                    className="press text-xs px-3 py-1.5 rounded-xl bg-rose-500 text-white font-medium"
                     title="Anonymise le compte maintenant"
                   >
                     ✓ Approuver + anonymiser
@@ -448,7 +564,7 @@ function DeletionRequestsTab() {
                   <button
                     type="button"
                     onClick={() => setDecisionFor({ req: r, action: 'reject' })}
-                    className="text-xs px-3 py-1 rounded bg-slate-200"
+                    className="press text-xs px-3 py-1.5 rounded-xl glass text-slate-700 font-medium"
                   >
                     ✕ Refuser
                   </button>
@@ -473,10 +589,20 @@ function DeletionRequestsTab() {
 
 function DeletionDecisionModal({ req, action, onClose, onSaved }) {
   const [comment, setComment] = useState('')
+  const [confirmText, setConfirmText] = useState('')
   const [saving, setSaving] = useState(false)
   const [err, setErr] = useState(null)
 
+  const destructive = action === 'approve'
+  // Garde-fou anti-clic-accidentel : pour approuver une anonymisation
+  // irréversible, l'admin doit retaper le username.
+  const confirmOk = !destructive || confirmText.trim() === req.username
+
   const submit = async () => {
+    if (!confirmOk) {
+      setErr('Veuillez retaper le nom d\'utilisateur pour confirmer.')
+      return
+    }
     setSaving(true)
     setErr(null)
     try {
@@ -488,18 +614,16 @@ function DeletionDecisionModal({ req, action, onClose, onSaved }) {
     }
   }
 
-  const destructive = action === 'approve'
-
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-3" role="dialog">
-      <div className="absolute inset-0 bg-slate-900/40" onClick={onClose} aria-hidden />
-      <div className="relative bg-white rounded-2xl shadow-xl w-full max-w-md p-5 space-y-3">
-        <h3 className="font-semibold">
-          {destructive ? '⚠ Approuver et anonymiser' : 'Refuser la demande'}
+      <div className="absolute inset-0 bg-slate-900/50 backdrop-blur-sm" onClick={onClose} aria-hidden />
+      <div className="relative glass-strong rounded-2xl w-full max-w-md p-5 space-y-4">
+        <h3 className="font-semibold text-slate-900">
+          {destructive ? '⚠️ Approuver et anonymiser' : '✕ Refuser la demande'}
           {' '}de <span className="font-mono">{req.username}</span>
         </h3>
         {destructive && (
-          <p className="text-xs text-rose-700 bg-rose-50 rounded p-2">
+          <p className="text-xs text-rose-700 glass rounded-xl p-3">
             Cette action va <strong>anonymiser immédiatement</strong> le compte.
             Le collaborateur ne pourra plus se connecter. Les pointages sont
             préservés mais rattachés à <code>deleted_N</code>. Action
@@ -507,9 +631,9 @@ function DeletionDecisionModal({ req, action, onClose, onSaved }) {
           </p>
         )}
         <label className="block text-sm">
-          Commentaire {destructive ? '(optionnel)' : '(motif du refus)'}
+          <span className="text-slate-600">Commentaire {destructive ? '(optionnel)' : '(motif du refus)'}</span>
           <textarea
-            className="w-full border rounded p-2 mt-1 h-24 text-sm"
+            className="glass-input w-full mt-1 h-24 text-sm"
             placeholder={destructive
               ? 'Ex : STC effectué le 30/04, accès retiré'
               : 'Ex : demande prématurée, le collaborateur est encore en préavis'
@@ -519,20 +643,36 @@ function DeletionDecisionModal({ req, action, onClose, onSaved }) {
             maxLength={1000}
           />
         </label>
-        {err && <p className="text-xs text-rose-700 bg-rose-50 rounded p-2">⚠ {err}</p>}
+        {destructive && (
+          <label className="block text-sm">
+            <span className="text-slate-700">
+              Pour confirmer, retapez <code className="font-mono bg-slate-100 px-1 rounded">{req.username}</code> :
+            </span>
+            <input
+              type="text"
+              className="glass-input w-full mt-1 text-sm font-mono"
+              value={confirmText}
+              onChange={(e) => setConfirmText(e.target.value)}
+              placeholder={req.username}
+              autoComplete="off"
+              spellCheck={false}
+            />
+          </label>
+        )}
+        {err && <p className="text-xs text-rose-700 glass rounded-xl p-3">⚠ {err}</p>}
         <div className="flex gap-2 justify-end">
           <button
             type="button"
             onClick={onClose}
             disabled={saving}
-            className="px-4 py-2 text-sm"
+            className="press px-4 py-2 text-sm glass-soft rounded-xl text-slate-700"
           >Annuler</button>
           <button
             type="button"
             onClick={submit}
-            disabled={saving}
-            className={`px-4 py-2 text-sm text-white rounded disabled:opacity-50 ${
-              destructive ? 'bg-rose-600' : 'bg-slate-700'
+            disabled={saving || !confirmOk}
+            className={`press px-4 py-2 text-sm text-white rounded-xl font-medium disabled:opacity-40 disabled:cursor-not-allowed ${
+              destructive ? 'bg-rose-500' : 'bg-slate-800'
             }`}
           >
             {saving ? 'Traitement…' : destructive ? 'Anonymiser maintenant' : 'Refuser'}
@@ -564,12 +704,12 @@ function AuditTab() {
     data?.actions_choices.find((c) => c.value === val)?.label || val
 
   return (
-    <div className="space-y-3">
-      <header className="flex flex-wrap gap-2 items-end bg-gray-50 border p-3 rounded">
+    <div className="space-y-4">
+      <div className="glass-soft rounded-xl p-4 flex flex-wrap gap-3 items-end">
         <label className="text-sm">
-          Action
+          <span className="text-slate-600 block mb-1">Action</span>
           <select
-            className="border rounded p-1 ml-2"
+            className="glass-input"
             value={filter.action}
             onChange={(e) => setFilter({ ...filter, action: e.target.value })}
           >
@@ -580,83 +720,87 @@ function AuditTab() {
           </select>
         </label>
         <label className="text-sm">
-          User cible #
+          <span className="text-slate-600 block mb-1">User cible #</span>
           <input
             type="number" placeholder="id"
-            className="border rounded p-1 ml-2 w-20"
+            className="glass-input w-24"
             value={filter.target_user}
             onChange={(e) => setFilter({ ...filter, target_user: e.target.value })}
           />
         </label>
         <label className="text-sm">
-          Du
+          <span className="text-slate-600 block mb-1">Du</span>
           <input
-            type="date" className="border rounded p-1 ml-2"
+            type="date" className="glass-input"
             value={filter.start}
             onChange={(e) => setFilter({ ...filter, start: e.target.value })}
           />
         </label>
         <label className="text-sm">
-          Au
+          <span className="text-slate-600 block mb-1">Au</span>
           <input
-            type="date" className="border rounded p-1 ml-2"
+            type="date" className="glass-input"
             value={filter.end}
             onChange={(e) => setFilter({ ...filter, end: e.target.value })}
           />
         </label>
-        <button type="button" onClick={refresh} className="bg-blue-600 text-white px-3 py-1 rounded text-sm">
+        <button type="button" onClick={refresh} className="pill pill-primary text-sm self-end">
           Filtrer
         </button>
-      </header>
+      </div>
 
       {loading || !data ? (
         <p className="text-sm text-slate-500">Chargement…</p>
       ) : data.results.length === 0 ? (
-        <p className="text-sm text-slate-500">Aucun événement pour ce filtre.</p>
+        <p className="text-sm text-slate-500 glass-soft rounded-xl p-4 text-center">
+          Aucun événement pour ce filtre.
+        </p>
       ) : (
         <>
-          <p className="text-xs text-slate-500">
+          <p className="text-xs text-slate-500 px-1">
             {data.count} événement(s) affichés (limite : {data.limit}). Append-only — non modifiable.
           </p>
-          <div className="overflow-x-auto -mx-3 sm:mx-0">
-          <table className="min-w-[720px] sm:min-w-0 w-full text-xs bg-white border">
-            <thead className="bg-gray-50 text-left">
+          <div className="glass rounded-xl overflow-hidden">
+          <div className="overflow-x-auto">
+          <table className="min-w-[720px] w-full text-xs">
+            <thead className="text-left border-b border-white/20">
               <tr>
-                <th className="p-2">Quand</th>
-                <th className="p-2">Acteur</th>
-                <th className="p-2">Action</th>
-                <th className="p-2">Cible</th>
-                <th className="p-2">Objet</th>
-                <th className="p-2">Détails</th>
-                <th className="p-2">IP</th>
+                <th className="px-3 py-2.5 text-slate-500 font-medium">Quand</th>
+                <th className="px-3 py-2.5 text-slate-500 font-medium">Acteur</th>
+                <th className="px-3 py-2.5 text-slate-500 font-medium">Action</th>
+                <th className="px-3 py-2.5 text-slate-500 font-medium">Cible</th>
+                <th className="px-3 py-2.5 text-slate-500 font-medium">Objet</th>
+                <th className="px-3 py-2.5 text-slate-500 font-medium">Détails</th>
+                <th className="px-3 py-2.5 text-slate-500 font-medium">IP</th>
               </tr>
             </thead>
-            <tbody className="divide-y">
+            <tbody className="divide-y divide-white/10">
               {data.results.map((r) => (
-                <tr key={r.id} className="hover:bg-blue-50/40">
-                  <td className="p-2 font-mono whitespace-nowrap">
+                <tr key={r.id} className="hover:bg-white/20 transition">
+                  <td className="px-3 py-2 font-mono whitespace-nowrap text-slate-700">
                     {new Date(r.created_at).toLocaleString('fr-FR')}
                   </td>
-                  <td className="p-2">
+                  <td className="px-3 py-2 text-slate-700">
                     {r.actor_username || <span className="text-slate-400">système</span>}
                   </td>
-                  <td className="p-2 font-medium">{actionLabel(r.action)}</td>
-                  <td className="p-2">
+                  <td className="px-3 py-2 font-medium text-slate-800">{actionLabel(r.action)}</td>
+                  <td className="px-3 py-2 text-slate-600">
                     {r.target_username || (r.target_user_id ? `#${r.target_user_id}` : '—')}
                   </td>
-                  <td className="p-2 text-slate-500">
+                  <td className="px-3 py-2 text-slate-500">
                     {r.object_type && `${r.object_type} #${r.object_id}`}
                   </td>
-                  <td className="p-2 text-slate-500">
+                  <td className="px-3 py-2 text-slate-500">
                     {Object.keys(r.details || {}).length > 0 && (
                       <code className="text-[10px]">{JSON.stringify(r.details)}</code>
                     )}
                   </td>
-                  <td className="p-2 font-mono text-slate-400">{r.ip_address || ''}</td>
+                  <td className="px-3 py-2 font-mono text-slate-400">{r.ip_address || ''}</td>
                 </tr>
               ))}
             </tbody>
           </table>
+          </div>
           </div>
         </>
       )}
@@ -666,18 +810,20 @@ function AuditTab() {
 
 function SitesTab() {
   const [sites, setSites] = useState([])
-  const [editing, setEditing] = useState(null) // site object or { new: true }
+  const [editing, setEditing] = useState(null)
+  const [deletingId, setDeletingId] = useState(null)
 
   const refresh = () => adminApi.sites.list().then((d) => setSites(d.results || d))
   useEffect(() => { refresh() }, [])
 
   return (
     <div className="space-y-4">
-      <div className="flex items-center gap-2">
+      <div className="flex items-center justify-between">
+        <p className="text-xs text-slate-500">{sites.length} site{sites.length !== 1 ? 's' : ''} configuré{sites.length !== 1 ? 's' : ''}</p>
         <button
           type="button"
           onClick={() => setEditing({ new: true, name: '', latitude: '', longitude: '', gps_radius_meters: 150 })}
-          className="bg-blue-600 text-white px-3 py-1 rounded text-sm"
+          className="pill pill-primary text-sm"
         >
           + Nouveau site
         </button>
@@ -691,50 +837,59 @@ function SitesTab() {
         />
       )}
 
-      <ul className="divide-y border rounded bg-white">
+      {sites.length === 0 && !editing && (
+        <div className="glass rounded-2xl p-8 text-center text-slate-400 text-sm">
+          Aucun site configuré — commencez par en créer un.
+        </div>
+      )}
+
+      <ul className="space-y-2">
         {sites.map((s) => (
-          <li key={s.id} className="p-3 flex flex-wrap items-center gap-x-3 gap-y-2 text-sm">
-            <span className="font-semibold w-32 sm:w-40 truncate">{s.name}</span>
-            <span className="text-gray-500 font-mono text-xs">
-              {Number(s.latitude).toFixed(4)}, {Number(s.longitude).toFixed(4)}
-            </span>
-            <span className="text-gray-500">±{s.gps_radius_meters}m</span>
-            <span className="ml-auto flex flex-wrap gap-2">
-              <button
-                type="button"
-                onClick={() => setEditing({ ...s })}
-                className="bg-blue-600 text-white px-3 py-1 rounded text-xs"
-              >
+          <li key={s.id} className="glass rounded-2xl p-4 flex flex-wrap items-center gap-3 text-sm">
+            <div className="flex-1 min-w-0">
+              <p className="font-semibold truncate">{s.name}</p>
+              <p className="text-xs text-slate-500 font-mono mt-0.5">
+                {Number(s.latitude).toFixed(4)}, {Number(s.longitude).toFixed(4)} · ±{s.gps_radius_meters} m
+              </p>
+            </div>
+            <div className="flex flex-wrap gap-2 shrink-0">
+              <button type="button" onClick={() => setEditing({ ...s })}
+                className="press px-3 py-1 rounded-full glass-soft text-xs">
                 Éditer
               </button>
-              <Link
-                to={`/admin/sites/${s.id}/qr`}
-                className="bg-gray-700 text-white px-3 py-1 rounded text-xs"
-              >
-                QR
+              <Link to={`/admin/sites/${s.id}/qr`}
+                className="press px-3 py-1 rounded-full glass-soft text-xs">
+                📱 QR
               </Link>
-              <button
-                type="button"
-                onClick={async () => { await adminApi.sites.regenQr(s.id); refresh() }}
-                className="bg-amber-600 text-white px-3 py-1 rounded text-xs"
-              >
-                Nouveau QR
+              <button type="button" onClick={async () => { await adminApi.sites.regenQr(s.id); refresh() }}
+                className="press px-3 py-1 rounded-full glass-soft text-xs text-amber-700">
+                ↻ Nouveau QR
               </button>
-              <button
-                type="button"
-                onClick={async () => {
-                  if (window.confirm(`Supprimer "${s.name}" ?`)) {
-                    await adminApi.sites.remove(s.id); refresh()
-                  }
-                }}
-                className="bg-red-600 text-white px-3 py-1 rounded text-xs"
-              >
+              <button type="button" onClick={() => setDeletingId(s.id)}
+                className="press px-3 py-1 rounded-full text-xs bg-rose-50 text-rose-700 border border-rose-200">
                 Suppr.
               </button>
-            </span>
+            </div>
           </li>
         ))}
       </ul>
+
+      {deletingId && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+          <div className="absolute inset-0 bg-slate-900/30 backdrop-blur-sm" onClick={() => setDeletingId(null)} aria-hidden />
+          <div className="relative glass-strong w-full max-w-sm rounded-3xl p-5 space-y-4">
+            <p className="font-semibold">Supprimer ce site ?</p>
+            <p className="text-sm text-slate-600">Les pointages associés resteront mais le QR code sera invalide.</p>
+            <div className="flex gap-2 justify-end">
+              <button type="button" onClick={() => setDeletingId(null)} className="press px-4 py-2 text-sm">Annuler</button>
+              <button type="button" onClick={async () => { await adminApi.sites.remove(deletingId); setDeletingId(null); refresh() }}
+                className="press bg-rose-600 text-white px-4 py-2 rounded-xl text-sm">
+                Supprimer
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
@@ -747,62 +902,67 @@ function SiteEditor({ site, onClose, onSaved }) {
     gps_radius_meters: site.gps_radius_meters || 150,
   })
   const [saving, setSaving] = useState(false)
+  const [err, setErr] = useState(null)
 
   const onSave = async (e) => {
     e.preventDefault()
-    setSaving(true)
+    setSaving(true); setErr(null)
     try {
-      if (site.new) {
-        await adminApi.sites.create(form)
-      } else {
-        await adminApi.sites.update(site.id, form)
-      }
+      if (site.new) await adminApi.sites.create(form)
+      else await adminApi.sites.update(site.id, form)
       onSaved()
-    } finally {
-      setSaving(false)
-    }
+    } catch (e) {
+      setErr(e?.response?.data ? JSON.stringify(e.response.data) : e.message)
+    } finally { setSaving(false) }
   }
 
   return (
-    <div className="bg-gray-50 border p-4 rounded space-y-3">
-      {/* Form for the site itself — siblings (holidays editor) live OUTSIDE
-          to avoid nested-form HTML restrictions. */}
-      <form onSubmit={onSave} className="space-y-3">
-        <div className="flex items-center justify-between">
-          <h3 className="font-semibold">{site.new ? 'Nouveau site' : `Éditer ${site.name}`}</h3>
-          <button type="button" onClick={onClose} className="text-sm text-gray-500">✕</button>
-        </div>
-        <div className="grid grid-cols-4 gap-2">
-          <input className="border rounded p-2 col-span-2" placeholder="Nom"
-                 value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} required />
-          <input className="border rounded p-2" placeholder="Latitude" type="number" step="0.000001"
-                 value={form.latitude} onChange={(e) => setForm({ ...form, latitude: e.target.value })} required />
-          <input className="border rounded p-2" placeholder="Longitude" type="number" step="0.000001"
-                 value={form.longitude} onChange={(e) => setForm({ ...form, longitude: e.target.value })} required />
-          <label className="col-span-4 block text-sm">
-            Rayon GPS (m)
-            <input className="border rounded p-2 ml-2 w-24" type="number" min="10"
-                   value={form.gps_radius_meters}
-                   onChange={(e) => setForm({ ...form, gps_radius_meters: Number(e.target.value) })} />
+    <div className="glass rounded-2xl p-5 space-y-4">
+      <div className="flex items-center justify-between">
+        <h3 className="font-semibold">{site.new ? '+ Nouveau site' : `Éditer · ${site.name}`}</h3>
+        <button type="button" onClick={onClose} className="press w-8 h-8 rounded-lg hover:bg-white/40 text-slate-500">✕</button>
+      </div>
+      <form onSubmit={onSave} className="space-y-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          <label className="block text-sm sm:col-span-2">
+            <span className="text-slate-600">Nom du site</span>
+            <input className="glass-input w-full mt-1" placeholder="Ex : Siège Lausanne"
+              value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} required />
+          </label>
+          <label className="block text-sm">
+            <span className="text-slate-600">Latitude</span>
+            <input className="glass-input w-full mt-1 font-mono" placeholder="46.5197" type="number" step="0.000001"
+              value={form.latitude} onChange={(e) => setForm({ ...form, latitude: e.target.value })} required />
+          </label>
+          <label className="block text-sm">
+            <span className="text-slate-600">Longitude</span>
+            <input className="glass-input w-full mt-1 font-mono" placeholder="6.6323" type="number" step="0.000001"
+              value={form.longitude} onChange={(e) => setForm({ ...form, longitude: e.target.value })} required />
+          </label>
+          <label className="block text-sm sm:col-span-2">
+            <span className="text-slate-600">Rayon GPS (m)</span>
+            <div className="flex items-center gap-2 mt-1">
+              <input className="glass-input w-24 font-mono text-center" type="number" min="10"
+                value={form.gps_radius_meters}
+                onChange={(e) => setForm({ ...form, gps_radius_meters: Number(e.target.value) })} />
+              <span className="text-xs text-slate-500">m — les employés doivent être dans ce périmètre pour pointer</span>
+            </div>
           </label>
         </div>
         <div>
-          <p className="text-sm mb-1">Clique sur la carte pour placer le site :</p>
+          <p className="text-xs text-slate-500 mb-2">Cliquez sur la carte pour positionner le site :</p>
           <MapPicker
             lat={form.latitude ? Number(form.latitude) : undefined}
             lon={form.longitude ? Number(form.longitude) : undefined}
             radius={Number(form.gps_radius_meters)}
-            onPick={(lat, lon) =>
-              setForm({ ...form, latitude: lat.toFixed(6), longitude: lon.toFixed(6) })
-            }
+            onPick={(lat, lon) => setForm({ ...form, latitude: lat.toFixed(6), longitude: lon.toFixed(6) })}
           />
         </div>
-        <div className="flex gap-2">
-          <button disabled={saving} className="bg-blue-600 text-white px-4 py-2 rounded disabled:opacity-50">
-            {saving ? 'Enregistrement…' : site.new ? 'Créer' : 'Enregistrer'}
-          </button>
-          <button type="button" onClick={onClose} className="bg-gray-300 px-4 py-2 rounded">
-            Annuler
+        {err && <p className="text-xs text-rose-700 bg-rose-50 rounded px-2 py-1">{err}</p>}
+        <div className="flex gap-2 justify-end">
+          <button type="button" onClick={onClose} className="press px-4 py-2 text-sm">Annuler</button>
+          <button type="submit" disabled={saving} className="pill pill-primary disabled:opacity-50">
+            {saving ? 'Enregistrement…' : site.new ? 'Créer le site' : 'Enregistrer'}
           </button>
         </div>
       </form>
@@ -816,9 +976,7 @@ function SiteHolidaysEditor({ siteId }) {
   const [items, setItems] = useState([])
   const [form, setForm] = useState({ date: '', name: '' })
 
-  const refresh = () =>
-    adminApi.holidays.list(siteId).then((d) => setItems(d.results || d))
-
+  const refresh = () => adminApi.holidays.list(siteId).then((d) => setItems(d.results || d))
   useEffect(() => { refresh() /* eslint-disable-next-line */ }, [siteId])
 
   const onAdd = async (e) => {
@@ -829,37 +987,31 @@ function SiteHolidaysEditor({ siteId }) {
     refresh()
   }
 
-  const onRemove = async (id) => {
-    await adminApi.holidays.remove(id)
-    refresh()
-  }
-
   return (
-    <div className="bg-white border rounded p-3 mt-3 space-y-2">
-      <h4 className="font-semibold text-sm">Jours fériés du site</h4>
+    <div className="glass-soft rounded-xl p-4 space-y-3 mt-2">
+      <h4 className="text-sm font-semibold flex items-center gap-1.5">🎉 Jours fériés du site</h4>
       <form onSubmit={onAdd} className="flex flex-wrap gap-2 items-end">
-        <input type="date" className="border rounded p-1 text-sm"
-               value={form.date} onChange={(e) => setForm({ ...form, date: e.target.value })} />
-        <input type="text" className="border rounded p-1 text-sm flex-1"
-               placeholder="Ex : Pont de l'Ascension"
-               value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} />
-        <button className="bg-blue-600 text-white px-3 py-1 rounded text-sm">+ Ajouter</button>
+        <input type="date" className="glass-input text-sm"
+          value={form.date} onChange={(e) => setForm({ ...form, date: e.target.value })} />
+        <input type="text" className="glass-input text-sm flex-1 min-w-[8rem]"
+          placeholder="Ex : Jeûne fédéral"
+          value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} />
+        <button type="submit" className="press px-3 py-2 rounded-xl bg-slate-900 text-white text-xs">+ Ajouter</button>
       </form>
       {items.length === 0 ? (
-        <p className="text-xs text-gray-500">Aucun jour férié configuré.</p>
+        <p className="text-xs text-slate-400">Aucun jour férié configuré pour ce site.</p>
       ) : (
-        <ul className="text-sm divide-y">
+        <ul className="space-y-1">
           {items.map((h) => (
-            <li key={h.id} className="flex items-center justify-between py-1">
+            <li key={h.id} className="flex items-center justify-between text-sm bg-white/40 rounded-lg px-3 py-1.5">
               <span>
-                <span className="font-mono">{h.date}</span> · {h.name}
+                <span className="font-mono text-xs text-slate-600">{h.date}</span>
+                <span className="mx-2 text-slate-300">·</span>
+                {h.name}
               </span>
-              <button
-                type="button"
-                onClick={() => onRemove(h.id)}
-                className="text-red-700 text-xs"
-              >
-                Suppr.
+              <button type="button" onClick={() => adminApi.holidays.remove(h.id).then(refresh)}
+                className="text-rose-600 text-xs hover:text-rose-800 press px-2 py-0.5 rounded">
+                ✕
               </button>
             </li>
           ))}
@@ -872,42 +1024,57 @@ function SiteHolidaysEditor({ siteId }) {
 function SlotsTab() {
   const [slots, setSlots] = useState([])
   const [form, setForm] = useState({ name: '', start_time: '', end_time: '' })
+  const [saving, setSaving] = useState(false)
 
   const refresh = () => adminApi.fixedSlots.list().then((d) => setSlots(d.results || d))
   useEffect(() => { refresh() }, [])
 
   const onCreate = async (e) => {
     e.preventDefault()
-    await adminApi.fixedSlots.create(form)
-    setForm({ name: '', start_time: '', end_time: '' })
-    refresh()
+    setSaving(true)
+    try { await adminApi.fixedSlots.create(form); setForm({ name: '', start_time: '', end_time: '' }); refresh() }
+    finally { setSaving(false) }
   }
 
   return (
     <div className="space-y-4">
-      <form onSubmit={onCreate} className="grid grid-cols-4 gap-2 items-end bg-gray-50 border p-3 rounded">
-        <input className="border rounded p-2 col-span-2" placeholder="Nom"
-               value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} required />
-        <input className="border rounded p-2" type="time"
-               value={form.start_time} onChange={(e) => setForm({ ...form, start_time: e.target.value })} required />
-        <input className="border rounded p-2" type="time"
-               value={form.end_time} onChange={(e) => setForm({ ...form, end_time: e.target.value })} required />
-        <button className="col-span-4 bg-blue-600 text-white py-2 rounded">Ajouter une plage</button>
-      </form>
-      <ul className="divide-y border rounded bg-white">
-        {slots.map((s) => (
-          <li key={s.id} className="p-3 flex items-center gap-3 text-sm">
-            <span className="font-semibold">{s.name}</span>
-            <span className="text-gray-500">{s.start_time} → {s.end_time}</span>
-            <button
-              className="ml-auto bg-red-600 text-white px-3 py-1 rounded text-xs"
-              onClick={async () => { await adminApi.fixedSlots.remove(s.id); refresh() }}
-            >
-              Suppr.
-            </button>
-          </li>
-        ))}
-      </ul>
+      <div className="glass rounded-2xl p-4">
+        <p className="text-xs text-slate-500 mb-3">
+          Les pointages hors des plages actives déclenchent une demande de justification.
+        </p>
+        <form onSubmit={onCreate} className="grid grid-cols-1 sm:grid-cols-4 gap-2 items-end">
+          <input className="glass-input sm:col-span-2 text-sm" placeholder="Nom de la plage (ex : Entrée standard)"
+            value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} required />
+          <input className="glass-input text-sm" type="time"
+            value={form.start_time} onChange={(e) => setForm({ ...form, start_time: e.target.value })} required />
+          <input className="glass-input text-sm" type="time"
+            value={form.end_time} onChange={(e) => setForm({ ...form, end_time: e.target.value })} required />
+          <button type="submit" disabled={saving}
+            className="sm:col-span-4 press bg-slate-900 text-white py-2 rounded-xl text-sm disabled:opacity-50">
+            {saving ? 'Ajout…' : '+ Ajouter la plage'}
+          </button>
+        </form>
+      </div>
+
+      {slots.length === 0 ? (
+        <p className="text-sm text-slate-400 text-center py-4">Aucune plage horaire fixe configurée.</p>
+      ) : (
+        <ul className="space-y-2">
+          {slots.map((s) => (
+            <li key={s.id} className="glass rounded-2xl px-4 py-3 flex items-center gap-4 text-sm">
+              <div className="flex-1">
+                <p className="font-medium">{s.name}</p>
+                <p className="text-xs text-slate-500 font-mono mt-0.5">{s.start_time} → {s.end_time}</p>
+              </div>
+              <button type="button"
+                onClick={async () => { await adminApi.fixedSlots.remove(s.id); refresh() }}
+                className="press px-3 py-1 rounded-full text-xs bg-rose-50 text-rose-700 border border-rose-200">
+                Suppr.
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
     </div>
   )
 }
@@ -915,48 +1082,61 @@ function SlotsTab() {
 function ToleranceTab() {
   const [cfg, setCfg] = useState(null)
   const [saving, setSaving] = useState(false)
+  const [ok, setOk] = useState(false)
 
   useEffect(() => { adminApi.tolerance.get().then(setCfg) }, [])
-  if (!cfg) return <p>Chargement…</p>
+  if (!cfg) return <div className="glass rounded-2xl h-32 animate-pulse" />
 
   const onSave = async (e) => {
     e.preventDefault()
-    setSaving(true)
+    setSaving(true); setOk(false)
     try {
       const updated = await adminApi.tolerance.update(cfg)
       setCfg(updated)
-    } finally {
-      setSaving(false)
-    }
+      setOk(true)
+      setTimeout(() => setOk(false), 3000)
+    } finally { setSaving(false) }
   }
 
   return (
-    <form onSubmit={onSave} className="space-y-3 max-w-md">
-      <label className="block">
-        <span className="text-sm">Tolérance (minutes)</span>
-        <input
-          type="number" min="0" max="60"
-          className="w-full border rounded p-2 mt-1"
-          value={cfg.tolerance_minutes}
-          onChange={(e) => setCfg({ ...cfg, tolerance_minutes: Number(e.target.value) })}
-        />
-      </label>
-      <label className="block">
-        <span className="text-sm">Direction d'arrondi</span>
-        <select
-          className="w-full border rounded p-2 mt-1"
-          value={cfg.rounding_direction}
-          onChange={(e) => setCfg({ ...cfg, rounding_direction: e.target.value })}
-        >
-          <option value="NEAREST">Plus proche</option>
-          <option value="DOWN">Inférieur</option>
-          <option value="UP">Supérieur</option>
-        </select>
-      </label>
-      <button disabled={saving} className="bg-blue-600 text-white px-4 py-2 rounded disabled:opacity-50">
-        {saving ? 'Enregistrement…' : 'Enregistrer'}
-      </button>
-    </form>
+    <div className="glass rounded-2xl p-5 max-w-md space-y-5">
+      <p className="text-xs text-slate-500">
+        L'arrondi s'applique à chaque heure de pointage. La tolérance définit
+        la plage autour de la plage fixe dans laquelle le pointage est accepté sans justification.
+      </p>
+      <form onSubmit={onSave} className="space-y-4">
+        <label className="block text-sm">
+          <span className="text-slate-600">Tolérance</span>
+          <div className="flex items-center gap-2 mt-1">
+            <input
+              type="number" min="0" max="60"
+              className="glass-input w-20 font-mono text-center"
+              value={cfg.tolerance_minutes}
+              onChange={(e) => setCfg({ ...cfg, tolerance_minutes: Number(e.target.value) })}
+            />
+            <span className="text-xs text-slate-500">
+              min — pointage accepté ±{cfg.tolerance_minutes} min autour des plages
+            </span>
+          </div>
+        </label>
+        <label className="block text-sm">
+          <span className="text-slate-600">Direction d'arrondi</span>
+          <select
+            className="glass-input w-full mt-1"
+            value={cfg.rounding_direction}
+            onChange={(e) => setCfg({ ...cfg, rounding_direction: e.target.value })}
+          >
+            <option value="NEAREST">↕ Plus proche (recommandé)</option>
+            <option value="DOWN">↓ Inférieur (favorise l'employeur)</option>
+            <option value="UP">↑ Supérieur (favorise l'employé)</option>
+          </select>
+        </label>
+        {ok && <p className="text-xs text-emerald-700 bg-emerald-50 rounded px-3 py-2">✓ Configuration enregistrée</p>}
+        <button type="submit" disabled={saving} className="pill pill-primary w-full justify-center disabled:opacity-50">
+          {saving ? 'Enregistrement…' : 'Enregistrer'}
+        </button>
+      </form>
+    </div>
   )
 }
 
@@ -1003,24 +1183,47 @@ function UsersTab() {
     refresh()
   }
 
-  const onDelete = async (u) => {
-    if (!window.confirm(`Supprimer "${u.username}" ?`)) return
-    await adminApi.users.remove(u.id)
+  const [deletingUser, setDeletingUser] = useState(null)
+
+  const onDelete = async () => {
+    if (!deletingUser) return
+    await adminApi.users.remove(deletingUser.id)
+    setDeletingUser(null)
     refresh()
   }
 
   return (
     <div className="space-y-4">
-      <form onSubmit={onCreate} className="grid grid-cols-6 gap-2 items-end bg-gray-50 border p-3 rounded">
-        <input className="border rounded p-2 col-span-2" placeholder="Nom d'utilisateur"
+      {/* Dialog de confirmation suppression */}
+      {deletingUser && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-3" role="dialog">
+          <div className="absolute inset-0 bg-slate-900/50 backdrop-blur-sm" onClick={() => setDeletingUser(null)} aria-hidden />
+          <div className="relative glass-strong rounded-2xl w-full max-w-sm p-5 space-y-4">
+            <p className="font-semibold text-slate-900">Supprimer ce collaborateur ?</p>
+            <p className="text-sm text-slate-600">
+              L'utilisateur <span className="font-mono font-semibold">{deletingUser.username}</span> sera définitivement supprimé.
+              Préférez la demande RGPD pour une anonymisation conforme.
+            </p>
+            <div className="flex gap-2 justify-end">
+              <button type="button" onClick={() => setDeletingUser(null)}
+                className="press px-4 py-2 text-sm glass-soft rounded-xl text-slate-700">Annuler</button>
+              <button type="button" onClick={onDelete}
+                className="press px-4 py-2 text-sm bg-rose-500 text-white rounded-xl font-medium">Supprimer</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      <form onSubmit={onCreate} className="glass-soft rounded-xl p-4 grid grid-cols-6 gap-2 items-end">
+        <input className="glass-input col-span-2" placeholder="Nom d'utilisateur"
                value={form.username} onChange={(e) => setForm({ ...form, username: e.target.value })} required />
-        <input className="border rounded p-2 col-span-2" placeholder="Mot de passe" type="text"
+        <input className="glass-input col-span-2" placeholder="Mot de passe" type="text"
                value={form.password} onChange={(e) => setForm({ ...form, password: e.target.value })} />
-        <input className="border rounded p-2" placeholder="h/sem" type="number" step="0.5"
+        <input className="glass-input" placeholder="h/sem" type="number" step="0.5"
                value={form.weekly_target_hours} onChange={(e) => setForm({ ...form, weekly_target_hours: e.target.value })} />
-        <input className="border rounded p-2" placeholder="Congés" type="number"
+        <input className="glass-input" placeholder="Congés" type="number"
                value={form.vacation_quota} onChange={(e) => setForm({ ...form, vacation_quota: Number(e.target.value) })} />
-        <select className="border rounded p-2 col-span-3"
+        <select className="glass-input col-span-3"
                 value={form.home_site}
                 onChange={(e) => setForm({ ...form, home_site: e.target.value ? Number(e.target.value) : '' })}>
           <option value="">— site de rattachement —</option>
@@ -1046,46 +1249,47 @@ function UsersTab() {
                  onChange={(e) => setForm({ ...form, can_edit_locked_months: e.target.checked })} />
           Peut modifier mois verrouillés
         </label>
-        <button className="col-span-6 bg-blue-600 text-white py-2 rounded">
+        <button className="col-span-6 pill pill-primary justify-center">
           Créer un collaborateur
         </button>
       </form>
 
       {/* Table users : 10 colonnes (#ID, username, site, domicile, trajet,
           h/sem, congés, manager, mission_mgr, action). Largement >402 px → scroll. */}
-      <div className="overflow-x-auto -mx-3 sm:mx-0">
-      <table className="min-w-[900px] sm:min-w-0 w-full text-sm border bg-white">
-        <thead className="bg-gray-50 text-left">
+      <div className="glass rounded-xl overflow-hidden">
+      <div className="overflow-x-auto">
+      <table className="min-w-[900px] w-full text-sm">
+        <thead className="text-left border-b border-white/20">
           <tr>
-            <th className="p-2 font-mono text-xs">ID</th>
-            <th className="p-2">Utilisateur</th>
-            <th className="p-2">Site</th>
-            <th className="p-2" title="Domicile sélectionné sur carte">🏠 Domicile</th>
-            <th className="p-2" title="Trajet domicile → site, ALLER simple, en minutes">🚗 Trajet</th>
-            <th className="p-2">Heures/sem</th>
-            <th className="p-2">Quota congés</th>
-            <th className="p-2">Manager direct</th>
-            <th className="p-2">Manager</th>
-            <th className="p-2">Mission Mgr</th>
-            <th className="p-2" title="Non soumis au timbrage">Non-badgeur</th>
-            <th className="p-2" title="Peut modifier les mois verrouillés">🔓 Mois</th>
-            <th className="p-2"></th>
+            <th className="px-3 py-2.5 text-xs text-slate-500 font-medium font-mono">ID</th>
+            <th className="px-3 py-2.5 text-xs text-slate-500 font-medium">Utilisateur</th>
+            <th className="px-3 py-2.5 text-xs text-slate-500 font-medium">Site</th>
+            <th className="px-3 py-2.5 text-xs text-slate-500 font-medium" title="Domicile sélectionné sur carte">🏠 Domicile</th>
+            <th className="px-3 py-2.5 text-xs text-slate-500 font-medium" title="Trajet domicile → site, ALLER simple, en minutes">🚗 Trajet</th>
+            <th className="px-3 py-2.5 text-xs text-slate-500 font-medium">Heures/sem</th>
+            <th className="px-3 py-2.5 text-xs text-slate-500 font-medium">Quota congés</th>
+            <th className="px-3 py-2.5 text-xs text-slate-500 font-medium">Manager direct</th>
+            <th className="px-3 py-2.5 text-xs text-slate-500 font-medium">Manager</th>
+            <th className="px-3 py-2.5 text-xs text-slate-500 font-medium">Mission Mgr</th>
+            <th className="px-3 py-2.5 text-xs text-slate-500 font-medium" title="Non soumis au timbrage">Non-badgeur</th>
+            <th className="px-3 py-2.5 text-xs text-slate-500 font-medium" title="Peut modifier les mois verrouillés">🔓 Mois</th>
+            <th className="px-3 py-2.5"></th>
           </tr>
         </thead>
-        <tbody className="divide-y">
+        <tbody className="divide-y divide-white/10">
           {users.map((u) => {
             const isAnonymized = /^deleted_\d+$/.test(u.username || '')
             return (
-            <tr key={u.id} className={isAnonymized ? 'bg-slate-50 text-slate-500 italic' : ''}>
-              <td className="p-2 font-mono text-xs text-slate-700">#{u.id}</td>
-              <td className="p-2">
+            <tr key={u.id} className={`hover:bg-white/20 transition ${isAnonymized ? 'opacity-60 italic' : ''}`}>
+              <td className="px-3 py-2 font-mono text-xs text-slate-500">#{u.id}</td>
+              <td className="px-3 py-2">
                 {isAnonymized ? (
                   <span title="Compte anonymisé (LPD Art. 32 al. 2)">
                     🕯 {u.username}
                   </span>
                 ) : (
                   <input
-                    type="text" className="border rounded p-1 w-40"
+                    type="text" className="glass-input text-sm py-1 px-2 w-36"
                     defaultValue={u.username}
                     onBlur={(e) => {
                       if (e.target.value !== u.username) {
@@ -1095,9 +1299,9 @@ function UsersTab() {
                   />
                 )}
               </td>
-              <td className="p-2">
+              <td className="px-3 py-2">
                 <select
-                  className="border rounded p-1"
+                  className="glass-input text-sm py-1 px-2"
                   value={u.home_site || ''}
                   onChange={(e) =>
                     updateField(u.id, 'home_site', e.target.value ? Number(e.target.value) : '')
@@ -1107,17 +1311,17 @@ function UsersTab() {
                   {sites.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
                 </select>
               </td>
-              <td className="p-2">
+              <td className="px-3 py-2">
                 {/* Domicile : badge cliquable qui ouvre la modal MapPicker. */}
                 <button
                   type="button"
                   onClick={() => !isAnonymized && setHomeEditing(u)}
                   disabled={isAnonymized}
-                  className={`text-xs px-2 py-1 rounded border ${
+                  className={`press text-xs px-2 py-1 rounded-lg ${
                     u.home_lat != null && u.home_lon != null
-                      ? 'bg-emerald-50 text-emerald-700 border-emerald-300'
-                      : 'bg-amber-50 text-amber-700 border-amber-300'
-                  } ${isAnonymized ? 'opacity-50 cursor-not-allowed' : 'hover:bg-blue-50'}`}
+                      ? 'bg-emerald-100/60 text-emerald-700'
+                      : 'bg-amber-100/60 text-amber-700'
+                  } ${isAnonymized ? 'opacity-50 cursor-not-allowed' : ''}`}
                   title={
                     u.home_lat != null
                       ? `lat ${Number(u.home_lat).toFixed(4)}, lon ${Number(u.home_lon).toFixed(4)}`
@@ -1127,11 +1331,12 @@ function UsersTab() {
                   {u.home_lat != null ? '📍 défini' : '+ définir'}
                 </button>
               </td>
-              <td className="p-2">
+              <td className="px-3 py-2">
                 {/* Trajet : éditable manuellement, badge "auto" sinon. */}
+                <div className="flex items-center gap-1">
                 <input
                   type="number" min="0" max="999"
-                  className="border rounded p-1 w-16 text-right"
+                  className="glass-input text-sm py-1 px-2 w-16 text-right"
                   defaultValue={u.standard_commute_minutes ?? ''}
                   placeholder="—"
                   disabled={isAnonymized}
@@ -1143,26 +1348,27 @@ function UsersTab() {
                   }}
                   title="Trajet aller simple en minutes (×2 pour A/R dans les calculs)"
                 />
-                <span className="text-[10px] text-slate-500 ml-1">min</span>
+                <span className="text-[10px] text-slate-500">min</span>
+                </div>
               </td>
-              <td className="p-2">
+              <td className="px-3 py-2">
                 <input
-                  type="number" step="0.5" className="border rounded p-1 w-24"
+                  type="number" step="0.5" className="glass-input text-sm py-1 px-2 w-20"
                   defaultValue={u.weekly_target_hours}
                   onBlur={(e) => updateField(u.id, 'weekly_target_hours', e.target.value)}
                 />
               </td>
-              <td className="p-2">
+              <td className="px-3 py-2">
                 <input
-                  type="number" className="border rounded p-1 w-20"
+                  type="number" className="glass-input text-sm py-1 px-2 w-16"
                   defaultValue={u.vacation_quota}
                   onBlur={(e) => updateField(u.id, 'vacation_quota', Number(e.target.value))}
                 />
               </td>
-              <td className="p-2">
+              <td className="px-3 py-2">
                 {/* Manager direct (pour les notifications email) */}
                 <select
-                  className="border rounded p-1 text-xs max-w-[120px]"
+                  className="glass-input text-xs py-1 px-2 max-w-[110px]"
                   value={u.manager || ''}
                   onChange={(e) => updateField(u.id, 'manager', e.target.value ? Number(e.target.value) : null)}
                   disabled={isAnonymized}
@@ -1173,21 +1379,21 @@ function UsersTab() {
                   ))}
                 </select>
               </td>
-              <td className="p-2">
+              <td className="px-3 py-2 text-center">
                 <input
                   type="checkbox"
                   defaultChecked={u.is_manager}
                   onChange={(e) => updateField(u.id, 'is_manager', e.target.checked)}
                 />
               </td>
-              <td className="p-2">
+              <td className="px-3 py-2 text-center">
                 <input
                   type="checkbox"
                   defaultChecked={u.is_mission_manager}
                   onChange={(e) => updateField(u.id, 'is_mission_manager', e.target.checked)}
                 />
               </td>
-              <td className="p-2">
+              <td className="px-3 py-2 text-center">
                 <input
                   type="checkbox"
                   defaultChecked={u.exempt_from_clocking}
@@ -1195,7 +1401,7 @@ function UsersTab() {
                   disabled={isAnonymized}
                 />
               </td>
-              <td className="p-2">
+              <td className="px-3 py-2 text-center">
                 <input
                   type="checkbox"
                   defaultChecked={u.can_edit_locked_months}
@@ -1203,12 +1409,12 @@ function UsersTab() {
                   disabled={isAnonymized}
                 />
               </td>
-              <td className="p-2">
+              <td className="px-3 py-2">
                 {!isAnonymized && (
                   <button
                     type="button"
-                    onClick={() => onDelete(u)}
-                    className="bg-red-600 text-white px-3 py-1 rounded text-xs"
+                    onClick={() => setDeletingUser(u)}
+                    className="press text-xs px-3 py-1 rounded-lg bg-rose-100/60 text-rose-700 hover:bg-rose-200/60 transition"
                   >
                     Suppr.
                   </button>
@@ -1218,6 +1424,7 @@ function UsersTab() {
           )})}
         </tbody>
       </table>
+      </div>
       </div>
 
       {homeEditing && (
@@ -1253,6 +1460,7 @@ function WorkTimeTab() {
   })
   const [err, setErr] = useState(null)
   const [ok, setOk] = useState(null)
+  const [deletingRule, setDeletingRule] = useState(null)
 
   const refresh = () => {
     adminApi.workTimePolicy.get().then(setPolicy)
@@ -1289,9 +1497,10 @@ function WorkTimeTab() {
     refresh()
   }
 
-  const deleteRule = async (rule) => {
-    if (!window.confirm(`Supprimer la règle "${rule.description}" ?`)) return
-    await adminApi.majorationRules.remove(rule.id)
+  const deleteRule = async () => {
+    if (!deletingRule) return
+    await adminApi.majorationRules.remove(deletingRule.id)
+    setDeletingRule(null)
     refresh()
   }
 
@@ -1306,6 +1515,25 @@ function WorkTimeTab() {
 
   return (
     <div className="space-y-8">
+
+      {/* Dialog de confirmation suppression règle */}
+      {deletingRule && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-3" role="dialog">
+          <div className="absolute inset-0 bg-slate-900/50 backdrop-blur-sm" onClick={() => setDeletingRule(null)} aria-hidden />
+          <div className="relative glass-strong rounded-2xl w-full max-w-sm p-5 space-y-4">
+            <p className="font-semibold text-slate-900">Supprimer cette règle ?</p>
+            <p className="text-sm text-slate-600">
+              <span className="font-medium">{deletingRule.description}</span> sera définitivement supprimée.
+            </p>
+            <div className="flex gap-2 justify-end">
+              <button type="button" onClick={() => setDeletingRule(null)}
+                className="press px-4 py-2 text-sm glass-soft rounded-xl text-slate-700">Annuler</button>
+              <button type="button" onClick={deleteRule}
+                className="press px-4 py-2 text-sm bg-rose-500 text-white rounded-xl font-medium">Supprimer</button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* ── Règles de majoration ─────────────────────────────────────── */}
       <section className="glass rounded-2xl p-5">
@@ -1329,26 +1557,26 @@ function WorkTimeTab() {
               <button
                 type="button"
                 onClick={() => toggleRule(r)}
-                className={`text-xs px-2 py-1 rounded border ${r.is_active ? 'border-emerald-400 text-emerald-700' : 'border-slate-300 text-slate-500'}`}
+                className={`press text-xs px-2.5 py-1 rounded-lg ${r.is_active ? 'bg-emerald-100/60 text-emerald-700' : 'glass text-slate-500'}`}
               >
                 {r.is_active ? 'Actif' : 'Inactif'}
               </button>
-              <button type="button" onClick={() => deleteRule(r)} className="text-xs text-rose-600 hover:bg-rose-50 px-2 py-1 rounded">✕</button>
+              <button type="button" onClick={() => setDeletingRule(r)} className="press text-xs text-rose-600 glass-soft px-2 py-1 rounded-lg">✕</button>
             </div>
           ))}
         </div>
 
         {/* New rule form */}
-        <form onSubmit={createRule} className="grid grid-cols-2 sm:grid-cols-6 gap-2 items-end bg-slate-50 border rounded-xl p-3">
+        <form onSubmit={createRule} className="grid grid-cols-2 sm:grid-cols-6 gap-2 items-end glass-soft rounded-xl p-4">
           <input
-            className="border rounded p-2 col-span-2"
+            className="glass-input col-span-2"
             placeholder="Libellé (ex: Heures sup.)"
             value={ruleForm.description}
             onChange={(e) => setRuleForm({ ...ruleForm, description: e.target.value })}
             required
           />
           <select
-            className="border rounded p-2"
+            className="glass-input"
             value={ruleForm.day_type}
             onChange={(e) => setRuleForm({ ...ruleForm, day_type: e.target.value })}
           >
@@ -1359,7 +1587,7 @@ function WorkTimeTab() {
           </select>
           <div className="flex items-center gap-1">
             <input
-              type="number" min="0" max="1440" className="border rounded p-2 w-20"
+              type="number" min="0" max="1440" className="glass-input w-20"
               placeholder="min" title="Seuil en minutes (ex: 510 = 8h30)"
               value={ruleForm.threshold_minutes}
               onChange={(e) => setRuleForm({ ...ruleForm, threshold_minutes: e.target.value })}
@@ -1368,14 +1596,14 @@ function WorkTimeTab() {
           </div>
           <div className="flex items-center gap-1">
             <input
-              type="number" min="1" max="3" step="0.05" className="border rounded p-2 w-20"
+              type="number" min="1" max="3" step="0.05" className="glass-input w-20"
               placeholder="1.25" title="Taux (ex: 1.25 = +25%)"
               value={ruleForm.rate}
               onChange={(e) => setRuleForm({ ...ruleForm, rate: e.target.value })}
             />
             <span className="text-xs text-slate-500">×</span>
           </div>
-          <button className="bg-slate-900 text-white py-2 px-3 rounded text-sm">+ Ajouter</button>
+          <button className="pill pill-primary justify-center">+ Ajouter</button>
         </form>
       </section>
 
@@ -1404,7 +1632,7 @@ function WorkTimeTab() {
                 <div className="flex items-center gap-2">
                   <input
                     type="number" min="1" max="28"
-                    className="border rounded p-2 w-20 text-center font-mono"
+                    className="glass-input w-20 text-center font-mono"
                     value={policy.month_lock_day}
                     onChange={p('month_lock_day')}
                   />
@@ -1416,7 +1644,7 @@ function WorkTimeTab() {
               <div>
                 <label className="block text-sm text-slate-600 mb-1">Qui peut modifier un mois verrouillé</label>
                 <select
-                  className="border rounded p-2 w-full"
+                  className="glass-input w-full"
                   value={policy.lock_bypass_roles}
                   onChange={(e) => { const v = e.target.value; setPolicy((prev) => ({ ...prev, lock_bypass_roles: v })) }}
                 >
@@ -1460,7 +1688,7 @@ function WorkTimeTab() {
                   Déclenchement après
                 </label>
                 <div className="flex items-center gap-2">
-                  <input type="number" min="0" className="border rounded p-2 w-20 font-mono text-center"
+                  <input type="number" min="0" className="glass-input w-20 font-mono text-center"
                     value={policy.break_trigger_minutes} onChange={p('break_trigger_minutes')} />
                   <span className="text-xs text-slate-500">
                     min ({minsToHHMM(policy.break_trigger_minutes)})
@@ -1470,7 +1698,7 @@ function WorkTimeTab() {
               <div>
                 <label className="block text-sm text-slate-600 mb-1">Durée de la pause</label>
                 <div className="flex items-center gap-2">
-                  <input type="number" min="0" className="border rounded p-2 w-20 font-mono text-center"
+                  <input type="number" min="0" className="glass-input w-20 font-mono text-center"
                     value={policy.break_duration_minutes} onChange={p('break_duration_minutes')} />
                   <span className="text-xs text-slate-500">min</span>
                 </div>
@@ -1478,7 +1706,7 @@ function WorkTimeTab() {
               <div>
                 <label className="block text-sm text-slate-600 mb-1">Dont pause payée</label>
                 <div className="flex items-center gap-2">
-                  <input type="number" min="0" className="border rounded p-2 w-20 font-mono text-center"
+                  <input type="number" min="0" className="glass-input w-20 font-mono text-center"
                     value={policy.paid_break_minutes} onChange={p('paid_break_minutes')} />
                   <span className="text-xs text-slate-500">min</span>
                 </div>
@@ -1513,7 +1741,7 @@ function WorkTimeTab() {
                   )}
                 </label>
                 <div className="flex items-center gap-2">
-                  <input type="number" min="0" className="border rounded p-2 w-20 font-mono text-center"
+                  <input type="number" min="0" className="glass-input w-20 font-mono text-center"
                     value={policy.daily_min_minutes} onChange={p('daily_min_minutes')} />
                   <span className="text-xs text-slate-500">
                     {policy.daily_min_minutes > 0 ? `min (${minsToHHMM(policy.daily_min_minutes)})` : 'min'}
@@ -1528,7 +1756,7 @@ function WorkTimeTab() {
                   )}
                 </label>
                 <div className="flex items-center gap-2">
-                  <input type="number" min="0" className="border rounded p-2 w-20 font-mono text-center"
+                  <input type="number" min="0" className="glass-input w-20 font-mono text-center"
                     value={policy.daily_max_minutes} onChange={p('daily_max_minutes')} />
                   <span className="text-xs text-slate-500">
                     {policy.daily_max_minutes > 0 ? `min (${minsToHHMM(policy.daily_max_minutes)})` : 'min'}
@@ -1543,7 +1771,7 @@ function WorkTimeTab() {
                   )}
                 </label>
                 <div className="flex items-center gap-2">
-                  <input type="number" min="0" className="border rounded p-2 w-20 font-mono text-center"
+                  <input type="number" min="0" className="glass-input w-20 font-mono text-center"
                     value={policy.eve_holiday_reduced_minutes} onChange={p('eve_holiday_reduced_minutes')} />
                   <span className="text-xs text-slate-500">
                     {policy.eve_holiday_reduced_minutes > 0
@@ -1584,6 +1812,7 @@ function HomeAddressModal({ user, siteCenter, onClose, onSave, onClear }) {
   const [lon, setLon] = useState(round6(user.home_lon))
   const [saving, setSaving] = useState(false)
   const [err, setErr] = useState(null)
+  const [confirmingClear, setConfirmingClear] = useState(false)
 
   const submit = async () => {
     if (lat == null || lon == null) return
@@ -1605,7 +1834,6 @@ function HomeAddressModal({ user, siteCenter, onClose, onSave, onClear }) {
   }
 
   const clear = async () => {
-    if (!window.confirm('Effacer le domicile de ce collaborateur ?')) return
     setSaving(true)
     setErr(null)
     try {
@@ -1618,18 +1846,19 @@ function HomeAddressModal({ user, siteCenter, onClose, onSave, onClear }) {
       )
     } finally {
       setSaving(false)
+      setConfirmingClear(false)
     }
   }
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-3" role="dialog">
-      <div className="absolute inset-0 bg-slate-900/40" onClick={onClose} aria-hidden />
-      <div className="relative bg-white rounded-2xl shadow-xl w-full max-w-2xl p-5 space-y-3 max-h-[90vh] overflow-y-auto">
+      <div className="absolute inset-0 bg-slate-900/50 backdrop-blur-sm" onClick={onClose} aria-hidden />
+      <div className="relative glass-strong rounded-2xl w-full max-w-2xl p-5 space-y-3 max-h-[90vh] overflow-y-auto">
         <div className="flex items-center justify-between">
-          <h3 className="font-semibold">
-            Domicile de <span className="font-mono">{user.username}</span>
+          <h3 className="font-semibold text-slate-900">
+            🏠 Domicile de <span className="font-mono">{user.username}</span>
           </h3>
-          <button type="button" onClick={onClose} className="w-8 h-8 rounded hover:bg-slate-100">✕</button>
+          <button type="button" onClick={onClose} className="press w-8 h-8 rounded-lg glass-soft text-slate-600">✕</button>
         </div>
         <p className="text-xs text-slate-600">
           Cliquez sur la carte pour positionner le domicile du collaborateur.
@@ -1643,21 +1872,37 @@ function HomeAddressModal({ user, siteCenter, onClose, onSave, onClear }) {
           onPick={(la, lo) => { setLat(round6(la)); setLon(round6(lo)) }}
           height={380}
         />
-        <div className="text-xs text-slate-600 font-mono">
+        <div className="text-xs text-slate-500 font-mono glass-soft rounded-xl px-3 py-2">
           {lat != null && lon != null
-            ? `lat ${lat.toFixed(6)}, lon ${lon.toFixed(6)}`
-            : 'Aucun point sélectionné'}
+            ? `📍 lat ${lat.toFixed(6)}, lon ${lon.toFixed(6)}`
+            : '— Aucun point sélectionné'}
         </div>
         {err && (
-          <p className="text-xs text-rose-700 bg-rose-50 rounded px-2 py-1 break-all">
+          <p className="text-xs text-rose-700 glass rounded-xl px-3 py-2 break-all">
             ⚠ {err}
           </p>
         )}
+
+        {/* Confirmation inline d'effacement */}
+        {confirmingClear && (
+          <div className="glass-soft rounded-xl p-3 space-y-2">
+            <p className="text-sm text-slate-700">Effacer le domicile de <span className="font-semibold">{user.username}</span> ?</p>
+            <div className="flex gap-2">
+              <button type="button" onClick={() => setConfirmingClear(false)}
+                className="press px-3 py-1.5 text-xs glass rounded-xl text-slate-700">Annuler</button>
+              <button type="button" onClick={clear} disabled={saving}
+                className="press px-3 py-1.5 text-xs bg-rose-500 text-white rounded-xl font-medium disabled:opacity-50">
+                {saving ? '…' : 'Confirmer'}
+              </button>
+            </div>
+          </div>
+        )}
+
         <div className="flex justify-between gap-2 pt-1">
-          {user.home_lat != null ? (
+          {user.home_lat != null && !confirmingClear ? (
             <button
-              type="button" onClick={clear} disabled={saving}
-              className="text-sm px-3 py-2 rounded text-rose-700 hover:bg-rose-50"
+              type="button" onClick={() => setConfirmingClear(true)} disabled={saving}
+              className="press text-sm px-3 py-2 rounded-xl text-rose-600 glass-soft"
             >
               Effacer le domicile
             </button>
@@ -1665,12 +1910,12 @@ function HomeAddressModal({ user, siteCenter, onClose, onSave, onClear }) {
           <div className="flex gap-2 ml-auto">
             <button
               type="button" onClick={onClose} disabled={saving}
-              className="px-4 py-2 text-sm"
+              className="press px-4 py-2 text-sm glass-soft rounded-xl text-slate-700"
             >Annuler</button>
             <button
               type="button" onClick={submit}
               disabled={saving || lat == null || lon == null}
-              className="px-4 py-2 text-sm rounded bg-blue-600 text-white disabled:opacity-50"
+              className="pill pill-primary disabled:opacity-50"
             >
               {saving ? 'Enregistrement…' : 'Enregistrer'}
             </button>

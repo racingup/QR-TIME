@@ -513,15 +513,18 @@ class MeSummaryView(APIView):
     permission_classes = [IsAuthenticated]
 
     def get(self, request):
+        from services.sessions import worked_minutes_on_day
         user = request.user
         today = timezone.localdate()
-        sessions_today = ClockSession.objects.filter(
-            user=user, clock_in__date=today,
+        # Calcul cohérent avec DayDetailView : union d'intervalles +
+        # support des sessions traversant minuit.
+        worked_minutes = worked_minutes_on_day(user, today)
+        open_session = (
+            ClockSession.objects
+            .filter(user=user, clock_out__isnull=True)
+            .order_by("-clock_in")
+            .first()
         )
-        worked_minutes = sum(
-            s.duration_minutes for s in sessions_today if s.clock_out_rounded
-        )
-        open_session = sessions_today.filter(clock_out__isnull=True).first()
         home_site = None
         if user.home_site_id:
             s = user.home_site
@@ -836,18 +839,21 @@ class AdminConsentWithdrawalDecideView(APIView):
         comment = (request.data.get("comment") or "")[:500]
 
         if decision == "APPROVE":
-            req.status = ConsentWithdrawalRequest.Status.APPROVED
-            req.decided_by = request.user
-            req.admin_comment = comment
-            req.decided_at = timezone.now()
-            req.save()
-            # Enregistrer le retrait effectif
+            # Créer le ConsentLog inverse AVANT le save : le signal
+            # post_save sur ConsentWithdrawalRequest est idempotent
+            # (il ne crée rien si le dernier log est déjà granted=False),
+            # mais ainsi le log porte IP et user_agent admin pour audit.
             ConsentLog.objects.create(
                 user=req.user, kind=req.kind, granted=False,
                 policy_version=PRIVACY_POLICY_VERSION if req.kind == "PRIVACY_POLICY" else "",
                 ip_address=_client_ip(request),
                 user_agent=(request.META.get("HTTP_USER_AGENT") or "")[:300],
             )
+            req.status = ConsentWithdrawalRequest.Status.APPROVED
+            req.decided_by = request.user
+            req.admin_comment = comment
+            req.decided_at = timezone.now()
+            req.save()
             log_admin_action(
                 actor=request.user, action=AdminAuditLog.Action.CONSENT_WITHDRAWAL_APPROVED,
                 target_user=req.user, object_type="ConsentWithdrawalRequest",

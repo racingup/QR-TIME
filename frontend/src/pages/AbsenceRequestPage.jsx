@@ -106,13 +106,26 @@ export default function AbsenceRequestPage({ presetKind }) {
       <h1 className="text-lg font-semibold tracking-tight">Demande d'absence</h1>
 
       {/* Solde congés affiché quand type = VACATION */}
-      {form.absence_type === 'VACATION' && summary && (
-        <div className="glass-soft rounded-xl px-4 py-2.5 flex items-center justify-between">
-          <span className="text-sm text-slate-600">Solde congés disponible</span>
-          <span className={`text-base font-semibold ${Number(summary.vacation_remaining) > 0 ? 'text-sky-700' : 'text-rose-600'}`}>
-            {Number(summary.vacation_remaining).toFixed(1)} jour{Number(summary.vacation_remaining) !== 1 ? 's' : ''}
-          </span>
-        </div>
+      {form.absence_type === 'VACATION' && (
+        summary ? (
+          <div className="glass-soft rounded-xl px-4 py-2.5 flex items-center justify-between">
+            <span className="text-sm text-slate-600">Solde congés disponible</span>
+            <span className={`text-base font-semibold ${Number(summary.vacation_remaining) > 0 ? 'text-sky-700' : 'text-rose-600'}`}>
+              {Number(summary.vacation_remaining).toFixed(1)} jour{Number(summary.vacation_remaining) !== 1 ? 's' : ''}
+            </span>
+          </div>
+        ) : (
+          <div className="glass-soft rounded-xl px-4 py-2.5 flex items-center justify-between animate-pulse">
+            <span className="text-sm text-slate-400">Chargement du solde…</span>
+            <span className="h-4 w-16 bg-slate-200 rounded" />
+          </div>
+        )
+      )}
+      {/* Warning si solde insuffisant (calcul côté front) */}
+      {form.absence_type === 'VACATION' && summary && days != null && days > Number(summary.vacation_remaining) && (
+        <p className="text-sm text-rose-700 bg-rose-50 rounded-xl px-3 py-2">
+          ⚠ Solde insuffisant : vous demandez {days} jour{days > 1 ? 's' : ''}, il vous reste {Number(summary.vacation_remaining).toFixed(1)}.
+        </p>
       )}
 
       <label className="block text-sm">
@@ -244,7 +257,14 @@ export default function AbsenceRequestPage({ presetKind }) {
 
       <button
         type="submit"
-        disabled={submitting || days === 0}
+        disabled={
+          submitting
+          || days === 0
+          || (form.absence_type === 'VACATION'
+              && summary
+              && days != null
+              && days > Number(summary.vacation_remaining))
+        }
         className="pill pill-primary w-full justify-center disabled:opacity-50"
       >
         {submitting ? 'Envoi…' : 'Soumettre la demande'}

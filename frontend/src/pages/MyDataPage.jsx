@@ -50,7 +50,16 @@ export default function MyDataPage() {
   const submitWithdrawal = async (kind) => {
     setWithdrawSubmitting((p) => ({ ...p, [kind]: true }))
     try {
-      await meApi.consentWithdrawal.create(kind, withdrawForm[kind]?.reason || '')
+      const resp = await meApi.consentWithdrawal.create(kind, withdrawForm[kind]?.reason || '')
+      // Optimistic update : ajouter immédiatement la demande à la liste
+      // pour que le badge "⏳ Retrait demandé" apparaisse sans flash.
+      if (resp?.request) {
+        setPendingWithdrawals((prev) => {
+          const arr = Array.isArray(prev) ? prev : []
+          if (arr.some((w) => w.kind === kind)) return arr
+          return [...arr, resp.request]
+        })
+      }
       closeWithdrawForm(kind)
       await refreshWithdrawals()
     } catch (e) {

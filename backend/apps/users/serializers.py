@@ -174,6 +174,21 @@ class AdminUserSerializer(serializers.ModelSerializer):
         # username is editable (superuser can rename collaborators).
         read_only_fields = ["id", "vacation_used", "overtime_balance", "is_superuser", "is_staff"]
 
+    def validate_manager(self, value):
+        """Le manager désigné doit avoir le flag is_manager=True (ou superuser).
+
+        Sans ça, les notifications email retomberaient sur le fallback
+        `all managers actifs`, et `manager_user_scope` serait incohérent.
+        """
+        if value is None:
+            return value
+        if not (value.is_manager or value.is_superuser):
+            raise serializers.ValidationError(
+                "L'utilisateur sélectionné comme manager n'a pas le rôle "
+                "manager. Cochez 'is_manager' sur sa fiche d'abord."
+            )
+        return value
+
     def create(self, validated_data):
         password = validated_data.pop("password", None) or UserProfile.objects.make_random_password()
         user = UserProfile(**validated_data)

@@ -1,6 +1,6 @@
 """Helpers de calcul sur les ClockSession.
 
-Deux fonctions critiques :
+Trois fonctions critiques :
 
 1. `merged_worked_minutes(sessions)` : retourne les minutes travaillées
    comme **union d'intervalles**. Évite la double comptabilisation lorsque
@@ -11,14 +11,20 @@ Deux fonctions critiques :
    retourne la 1ʳᵉ session qui chevauche l'intervalle proposé, ou None.
    Utilisé pour rejeter en amont les chevauchements à la création/édition.
 
+3. `sessions_overlapping_day(user, date)` + `worked_minutes_on_day(user, date)` :
+   gère les sessions qui traversent minuit. Un pointage 23:30 → 01:00
+   compte pour 30 min sur le jour 1 ET 60 min sur le jour 2.
+
 Une session ouverte (clock_out is None) est traitée comme couvrant
 jusqu'à `clock_in + 24h` pour le calcul de chevauchement — cela permet
 de bloquer la création d'un pointage tant qu'une session est ouverte.
 """
 from __future__ import annotations
 
-from datetime import datetime, timedelta
+from datetime import date as date_type, datetime, time, timedelta
 from typing import Iterable, Optional
+
+from django.utils import timezone
 
 
 def _interval_of(session) -> Optional[tuple[datetime, datetime]]:
@@ -96,3 +102,58 @@ def find_overlapping_session(
         if existing_start < proposed_end and clock_in < existing_end:
             return s
     return None
+
+
+def sessions_overlapping_day(user, day: date_type):
+    """Retourne les sessions qui ont au moins une minute sur le jour donné.
+
+    Inclut les sessions qui démarrent la veille et se terminent ce jour-là
+    (pointage de nuit), et celles qui débutent ce jour et se terminent
+    le lendemain. Utilise les valeurs arrondies si disponibles.
+    """
+    tz = timezone.get_current_timezone()
+    day_start = timezone.make_aware(datetime.combine(day, time.min), tz)
+    day_end = day_start + timedelta(days=1)
+    # Session chevauche le jour ssi clock_in < day_end ET clock_out > day_start
+    # (NULL clock_out = session ouverte → couvre tout le futur)
+    qs = user.sessions.filter(clock_in__lt=day_end)
+    return [
+        s for s in qs
+        if (s.clock_out_rounded or s.clock_out or s.clock_in) > day_start
+    ]
+
+
+def worked_minutes_on_day(user, day: date_type) -> int:
+    """Minutes travaillées pour un jour donné, en tronquant les sessions
+    qui traversent minuit à [00:00, 24:00[ du jour.
+
+    Combine également l'union d'intervalles pour éviter les double-comptages
+    sur des sessions chevauchantes.
+    """
+    tz = timezone.get_current_timezone()
+    day_start = timezone.make_aware(datetime.combine(day, time.min), tz)
+    day_end = day_start + timedelta(days=1)
+
+    intervals: list[tuple[datetime, datetime]] = []
+    for s in sessions_overlapping_day(user, day):
+        iv = _interval_of(s)
+        if iv is None:
+            continue
+        start, end = iv
+        # Tronquer au jour
+        start = max(start, day_start)
+        end = min(end, day_end)
+        if end > start:
+            intervals.append((start, end))
+    if not intervals:
+        return 0
+    intervals.sort(key=lambda x: x[0])
+    merged: list[list[datetime]] = [list(intervals[0])]
+    for start, end in intervals[1:]:
+        if start <= merged[-1][1]:
+            if end > merged[-1][1]:
+                merged[-1][1] = end
+        else:
+            merged.append([start, end])
+    total_seconds = sum((end - start).total_seconds() for start, end in merged)
+    return int(total_seconds // 60)

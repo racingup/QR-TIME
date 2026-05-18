@@ -15,6 +15,32 @@ if TYPE_CHECKING:
     from apps.users.models import UserProfile
 
 
+def reconcile_overtime_balance(user: "UserProfile") -> Decimal:
+    """Recompute `overtime_balance` from scratch (sum of daily deltas).
+
+    Idempotent : peut être appelée plusieurs fois sans risque de
+    double-comptage. À utiliser après toute opération qui change
+    les pointages (création manuelle, édition, suppression).
+
+    Scope : tous les jours où l'utilisateur a au moins une session.
+    """
+    from apps.clocking.models import ClockSession
+
+    # Tous les jours distincts couverts par les sessions (clock_in).
+    # `dates` retourne une liste de date python triée.
+    days = (
+        ClockSession.objects
+        .filter(user=user)
+        .dates("clock_in", "day")
+    )
+    total = Decimal("0")
+    for d in days:
+        total += compute_overtime(user, d)
+    user.overtime_balance = total
+    user.save(update_fields=["overtime_balance"])
+    return total
+
+
 def compute_overtime(user: "UserProfile", date: date_type) -> Decimal:
     """Return overtime delta in hours (weighted) for the given day.
 
@@ -34,17 +60,14 @@ def compute_overtime(user: "UserProfile", date: date_type) -> Decimal:
     """
     from apps.users.models import SiteHoliday, WorkTimePolicy
     from services.missions_travel import daily_travel_compensable_minutes
-    from services.sessions import merged_worked_minutes
+    from services.sessions import worked_minutes_on_day
 
     policy = WorkTimePolicy.load()
 
-    sessions = user.sessions.filter(
-        clock_in_rounded__date=date,
-        clock_out_rounded__isnull=False,
-    )
-    # Union d'intervalles : évite la double comptabilisation lorsque
-    # plusieurs pointages d'une même journée se chevauchent.
-    worked_minutes = merged_worked_minutes(sessions)
+    # Tronquer chaque session au jour considéré + union d'intervalles.
+    # Une session de nuit (23:30 → 01:00) compte pour 30 min sur le jour 1
+    # ET 60 min sur le jour 2.
+    worked_minutes = worked_minutes_on_day(user, date)
     worked_minutes += daily_travel_compensable_minutes(user, date)
 
     # ── Break deduction (auto) ───────────────────────────────────────────
