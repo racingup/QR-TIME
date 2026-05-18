@@ -30,6 +30,10 @@ const api = axios.create({
 api.interceptors.request.use((config) => {
   const t = tokens.access
   if (t) config.headers.Authorization = `Bearer ${t}`
+  // Mémoriser le token utilisé pour cette requête : si un refresh a
+  // déjà eu lieu pendant l'envoi (concurrence), on évitera de re-refresh
+  // pour rien et de griller le nouveau refresh-token (rotation JWT).
+  config._sentWithAccessToken = t
   return config
 })
 
@@ -61,6 +65,16 @@ api.interceptors.response.use(
       return Promise.reject(error)
     }
     original._retry = true
+
+    // Optimisation anti-race : si une autre requête a déjà refresh
+    // pendant que celle-ci attendait sa réponse, on a un nouvel access
+    // token en localStorage qui n'a pas été utilisé. On retry direct
+    // sans re-consommer le refresh-token (qui peut être one-shot).
+    if (tokens.access && tokens.access !== original._sentWithAccessToken) {
+      original.headers.Authorization = `Bearer ${tokens.access}`
+      return api(original)
+    }
+
     refreshing ??= axios
       .post('/api/auth/refresh/', { refresh: tokens.refresh })
       .then((r) => {

@@ -109,17 +109,26 @@ def sessions_overlapping_day(user, day: date_type):
 
     Inclut les sessions qui démarrent la veille et se terminent ce jour-là
     (pointage de nuit), et celles qui débutent ce jour et se terminent
-    le lendemain. Utilise les valeurs arrondies si disponibles.
+    le lendemain.
+
+    Optim : filtre 100% en SQL via Q(clock_out__gt=day_start) | Q(clock_out__isnull=True).
+    Le filtre Python sur clock_out_rounded est conservé en post-traitement
+    léger (la majorité des sessions n'ont pas de rounded distinct).
     """
+    from django.db.models import Q
+
     tz = timezone.get_current_timezone()
     day_start = timezone.make_aware(datetime.combine(day, time.min), tz)
     day_end = day_start + timedelta(days=1)
-    # Session chevauche le jour ssi clock_in < day_end ET clock_out > day_start
-    # (NULL clock_out = session ouverte → couvre tout le futur)
-    qs = user.sessions.filter(clock_in__lt=day_end)
+
+    qs = user.sessions.filter(
+        Q(clock_in__lt=day_end)
+        & (Q(clock_out__gt=day_start) | Q(clock_out__isnull=True))
+    )
+    # Affinage : tenir compte de clock_out_rounded si défini (peut différer).
     return [
         s for s in qs
-        if (s.clock_out_rounded or s.clock_out or s.clock_in) > day_start
+        if (s.clock_out_rounded or s.clock_out or (s.clock_in + timedelta(hours=24))) > day_start
     ]
 
 

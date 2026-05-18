@@ -59,7 +59,15 @@ class AbsenceRequest(models.Model):
                                      (n'est absent que l'après-midi de date_start)
           - half_day_end   = True  → l'employé travaille l'après-midi du dernier jour
                                      (n'est absent que le matin de date_end)
+
+        **Cache** : l'ensemble des fériés est mémoïsé par instance pour
+        éviter de re-requêter la DB à chaque accès (la property est lue
+        plusieurs fois par render).
         """
+        cached = getattr(self, "_days_count_cache", None)
+        if cached is not None:
+            return cached
+
         from datetime import timedelta
 
         # Construire l'ensemble des fériés du site de rattachement.
@@ -87,19 +95,33 @@ class AbsenceRequest(models.Model):
             d += timedelta(days=1)
 
         if working_days == 0:
+            self._days_count_cache = 0.0
             return 0.0
 
         # Appliquer les demi-jours UNIQUEMENT si le jour concerné est ouvré.
         if self.date_start == self.date_end:
             if self.half_day_start and self.half_day_end:
-                return 0.0
-            if self.half_day_start or self.half_day_end:
-                return 0.5
-            return float(working_days)
+                self._days_count_cache = 0.0
+            elif self.half_day_start or self.half_day_end:
+                self._days_count_cache = 0.5
+            else:
+                self._days_count_cache = float(working_days)
+            return self._days_count_cache
 
         delta = 0.0
         if self.half_day_start and is_working_day(self.date_start):
             delta += 0.5
         if self.half_day_end and is_working_day(self.date_end):
             delta += 0.5
-        return working_days - delta
+        self._days_count_cache = working_days - delta
+        return self._days_count_cache
+
+    def refresh_from_db(self, *args, **kwargs):
+        # Invalider le cache si l'objet est rechargé.
+        self._days_count_cache = None
+        return super().refresh_from_db(*args, **kwargs)
+
+    def save(self, *args, **kwargs):
+        # Invalider le cache au save (dates ou flags peuvent changer).
+        self._days_count_cache = None
+        return super().save(*args, **kwargs)

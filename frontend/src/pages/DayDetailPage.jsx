@@ -3,6 +3,7 @@ import { Link, useParams, useSearchParams } from 'react-router-dom'
 import * as clockApi from '../api/clock'
 import * as meApi from '../api/me'
 import { useAuth } from '../hooks/useAuth'
+import { useModalMaxHeight } from '../hooks/useModalMaxHeight'
 
 function fmtTime(iso) {
   if (!iso) return '—'
@@ -310,6 +311,7 @@ export default function DayDetailPage() {
 }
 
 function ManualSessionModal({ userId, username, date, onClose, onSaved }) {
+  const maxH = useModalMaxHeight(0.9)
   const [form, setForm] = useState({
     clock_in: `${date}T09:00`,
     clock_out: `${date}T17:00`,
@@ -358,7 +360,10 @@ function ManualSessionModal({ userId, username, date, onClose, onSaved }) {
 
   return (
     <div className="fixed inset-0 bg-slate-900/30 backdrop-blur-sm flex items-end sm:items-center justify-center p-3 z-50">
-      <div className="glass-strong rounded-3xl p-5 w-full sm:max-w-md max-h-[90vh] overflow-y-auto safe-bottom space-y-3">
+      <div
+        className="glass-strong rounded-3xl p-5 w-full sm:max-w-md overflow-y-auto safe-bottom space-y-3"
+        style={{ maxHeight: maxH }}
+      >
         <div className="flex items-center justify-between">
           <h3 className="font-semibold">Pointage manuel — {username}</h3>
           <button type="button" onClick={onClose} className="press w-8 h-8 rounded-lg hover:bg-white/40">✕</button>
@@ -431,6 +436,7 @@ function labelAbsence(type) {
 }
 
 function SessionEditModal({ session, onClose, onSaved }) {
+  const maxH = useModalMaxHeight(0.9)
   const [form, setForm] = useState({
     clock_in: isoDateTimeLocal(session.clock_in),
     clock_in_rounded: isoDateTimeLocal(session.clock_in_rounded),
@@ -472,7 +478,10 @@ function SessionEditModal({ session, onClose, onSaved }) {
 
   return (
     <div className="fixed inset-0 bg-slate-900/30 backdrop-blur-sm flex items-end sm:items-center justify-center p-3 z-50">
-      <div className="glass-strong rounded-3xl p-5 w-full sm:max-w-md max-h-[90vh] overflow-y-auto safe-bottom space-y-4">
+      <div
+        className="glass-strong rounded-3xl p-5 w-full sm:max-w-md overflow-y-auto safe-bottom space-y-4"
+        style={{ maxHeight: maxH }}
+      >
         <div className="flex items-center justify-between">
           <h3 className="font-semibold">Édition session #{session.id}</h3>
           <button type="button" onClick={onClose} className="press w-8 h-8 rounded-lg hover:bg-white/40">✕</button>

@@ -16,26 +16,43 @@ if TYPE_CHECKING:
 
 
 def reconcile_overtime_balance(user: "UserProfile") -> Decimal:
-    """Recompute `overtime_balance` from scratch (sum of daily deltas).
+    """Recompute `overtime_balance` via la table DailyOvertime (UPSERT).
 
-    Idempotent : peut être appelée plusieurs fois sans risque de
-    double-comptage. À utiliser après toute opération qui change
-    les pointages (création manuelle, édition, suppression).
+    Idempotent : pour chaque jour où l'user a une session, on (re)calcule
+    le delta et on l'UPSERT dans `DailyOvertime` (unique sur user+date).
+    Le balance final est la somme SQL des deltas — aucun double-comptage
+    possible, même après création manuelle / édit / delete.
 
-    Scope : tous les jours où l'utilisateur a au moins une session.
+    Performance : 1 requête `dates()` + 1 UPSERT par jour + 1 SUM final.
+    Pour un user actif sur 1 an : ~250 UPSERT. Acceptable car appelé
+    rarement (à chaque modif de pointage).
     """
-    from apps.clocking.models import ClockSession
+    from apps.clocking.models import ClockSession, DailyOvertime
+    from django.db.models import Sum
 
     # Tous les jours distincts couverts par les sessions (clock_in).
-    # `dates` retourne une liste de date python triée.
     days = (
         ClockSession.objects
         .filter(user=user)
         .dates("clock_in", "day")
     )
-    total = Decimal("0")
     for d in days:
-        total += compute_overtime(user, d)
+        delta = compute_overtime(user, d)
+        DailyOvertime.objects.update_or_create(
+            user=user, date=d,
+            defaults={"hours": delta},
+        )
+    # Nettoyer les anciens DailyOvertime qui ne correspondent plus à
+    # aucune session (cas : suppression de toutes les sessions d'un jour).
+    days_set = set(days)
+    DailyOvertime.objects.filter(user=user).exclude(date__in=days_set).delete()
+
+    total = (
+        DailyOvertime.objects
+        .filter(user=user)
+        .aggregate(s=Sum("hours"))["s"]
+        or Decimal("0")
+    )
     user.overtime_balance = total
     user.save(update_fields=["overtime_balance"])
     return total

@@ -112,3 +112,45 @@ class Alert(models.Model):
     @property
     def is_resolved(self) -> bool:
         return self.resolved_at is not None
+
+
+class DailyOvertime(models.Model):
+    """Contribution quotidienne au solde d'heures supplémentaires.
+
+    Pour chaque (user, day), on stocke le delta (positif ou négatif) que
+    cette journée représente après application des règles de majoration.
+
+    Pourquoi un modèle dédié plutôt qu'un simple compteur ?
+      • Idempotence : recompute(user, day) UPSERT la ligne (pas de double
+        comptage si on rejoue le calcul après une édition manuelle).
+      • Performance : le solde total = SUM(hours) sur cette table —
+        O(N_jours) une fois, O(1) à la lecture par cache UserProfile.
+      • Audit : on garde la trace de quelle journée contribue à combien.
+    """
+
+    user = models.ForeignKey(
+        "users.UserProfile", on_delete=models.CASCADE,
+        related_name="daily_overtime",
+    )
+    date = models.DateField()
+    hours = models.DecimalField(
+        max_digits=6, decimal_places=2,
+        help_text="Delta pondéré en heures (positif = sup, négatif = déficit).",
+    )
+    computed_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        verbose_name = "Overtime quotidien"
+        verbose_name_plural = "Overtime quotidiens"
+        constraints = [
+            models.UniqueConstraint(
+                fields=["user", "date"],
+                name="unique_daily_overtime_per_user_day",
+            ),
+        ]
+        indexes = [
+            models.Index(fields=["user", "date"]),
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.user_id} {self.date} {self.hours}h"

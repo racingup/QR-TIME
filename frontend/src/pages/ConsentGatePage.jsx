@@ -91,7 +91,19 @@ export default function ConsentGatePage({ onAccepted }) {
           ))}
         </ul>
 
-        {error && <p className="text-sm text-rose-600 text-center">{error}</p>}
+        {error && (
+          <div className="bg-rose-50 border border-rose-200 rounded-xl p-3 space-y-2">
+            <p className="text-sm text-rose-700 text-center">{error}</p>
+            <button
+              type="button"
+              onClick={handleSubmit}
+              disabled={submitting}
+              className="press w-full text-sm font-medium text-rose-700 bg-white rounded-lg py-2 disabled:opacity-50"
+            >
+              {submitting ? 'Nouvelle tentative…' : '↻ Réessayer'}
+            </button>
+          </div>
+        )}
 
         <button
           type="button"
