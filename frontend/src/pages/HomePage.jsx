@@ -11,15 +11,16 @@ const TABS = [
   { id: 'year', label: 'Année' },
 ]
 
-const ABSENCE_KINDS = [
-  { id: 'VACATION', label: 'Congés payés', icon: '🏖' },
-  { id: 'SICK', label: 'Maladie', icon: '🤒' },
-  { id: 'OTHER', label: 'Autre', icon: '📝' },
+const REQUEST_KINDS = [
+  { id: 'VACATION', label: 'Congés payés', icon: '🏖', route: '/requests?type=absence&kind=VACATION' },
+  { id: 'SICK',     label: 'Maladies',     icon: '🤒', route: '/requests?type=absence&kind=SICK' },
+  { id: 'OTHER',    label: 'Autres',       icon: '📝', route: '/requests?type=absence&kind=OTHER' },
+  { id: 'MISSION',  label: 'Mission',      icon: '🚗', route: '/requests?type=mission' },
 ]
 
 export default function HomePage() {
   const [tab, setTab] = useState('day')
-  const [absenceMenuOpen, setAbsenceMenuOpen] = useState(false)
+  const [requestMenuOpen, setRequestMenuOpen] = useState(false)
   const navigate = useNavigate()
 
   return (
@@ -53,16 +54,16 @@ export default function HomePage() {
 
       <FabCluster
         onScan={() => navigate('/scan')}
-        onAbsence={() => setAbsenceMenuOpen(true)}
+        onAbsence={() => setRequestMenuOpen(true)}
       />
 
-      {absenceMenuOpen && (
-        <AbsenceTypeMenu
-          onPick={(kind) => {
-            setAbsenceMenuOpen(false)
-            navigate(`/requests?type=absence&kind=${kind}`)
+      {requestMenuOpen && (
+        <RequestTypeMenu
+          onPick={(route) => {
+            setRequestMenuOpen(false)
+            navigate(route)
           }}
-          onClose={() => setAbsenceMenuOpen(false)}
+          onClose={() => setRequestMenuOpen(false)}
         />
       )}
     </div>
@@ -218,8 +219,8 @@ function FabCluster({ onScan, onAbsence }) {
         type="button"
         onClick={onAbsence}
         className="press w-12 h-12 rounded-full glass-strong text-slate-900 flex items-center justify-center shadow-lg ring-1 ring-slate-200"
-        aria-label="Demander une absence"
-        title="Demander une absence"
+        aria-label="Nouvelle demande (absence ou mission)"
+        title="Nouvelle demande"
       >
         <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round">
           <path d="M12 5v14M5 12h14" />
@@ -286,19 +287,19 @@ function minsHHMM(mins) {
   return `${Math.floor(mins / 60)}h${String(mins % 60).padStart(2, '0')}`
 }
 
-function AbsenceTypeMenu({ onPick, onClose }) {
+function RequestTypeMenu({ onPick, onClose }) {
   return (
     <div className="fixed inset-0 z-40 flex items-end sm:items-center justify-center" role="dialog">
       <div className="absolute inset-0 bg-slate-900/30 backdrop-blur-sm" onClick={onClose} aria-hidden />
       <div className="relative glass-strong w-full sm:max-w-sm rounded-t-3xl sm:rounded-3xl p-4 safe-bottom space-y-2">
         <p className="text-center text-xs uppercase tracking-widest text-slate-500 mb-2">
-          Type d'absence
+          Nouvelle demande
         </p>
-        {ABSENCE_KINDS.map((k) => (
+        {REQUEST_KINDS.map((k) => (
           <button
             key={k.id}
             type="button"
-            onClick={() => onPick(k.id)}
+            onClick={() => onPick(k.route)}
             className="press w-full glass-soft rounded-2xl p-4 flex items-center gap-3 text-left hover:bg-white/60"
           >
             <span className="text-2xl">{k.icon}</span>

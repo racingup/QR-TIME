@@ -158,9 +158,6 @@ function Drawer({ user, alertCount, onClose, onLogout }) {
           <NavLink to="/" end onClick={close} className={linkClass}>
             Accueil
           </NavLink>
-          <NavLink to="/calendar" onClick={close} className={linkClass}>
-            Calendrier
-          </NavLink>
           <NavLink to="/requests" onClick={close} className={linkClass}>
             Mes demandes
           </NavLink>
