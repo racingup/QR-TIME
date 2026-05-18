@@ -1,6 +1,7 @@
 import { useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { useEmployee } from '../hooks/useEmployee'
+import { applyBreakDeduction } from '../utils/policy'
 
 function pad(n) {
   return String(n).padStart(2, '0')
@@ -95,9 +96,11 @@ export default function EmployeeDashboard() {
         ) : (
           <ul className="divide-y">
             {days.map(([day, sessions]) => {
-              const totalMin = sessions
+              const rawMin = sessions
                 .filter((s) => s.clock_out_rounded)
                 .reduce((a, s) => a + s.duration_minutes, 0)
+              // Déduction de pause cohérente avec le Greeting/DayDetail.
+              const totalMin = applyBreakDeduction(rawMin, summary?.policy)
               return (
                 <li key={day} className="py-2">
                   <Link

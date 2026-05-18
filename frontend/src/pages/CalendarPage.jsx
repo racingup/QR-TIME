@@ -4,6 +4,8 @@ import * as absencesApi from '../api/absences'
 import * as clockApi from '../api/clock'
 import * as meApi from '../api/me'
 import * as missionsApi from '../api/missions'
+import { useSummary } from '../hooks/useSummary'
+import { applyBreakDeduction } from '../utils/policy'
 
 const VIEWS = [
   { id: 'month', label: 'Mois' },
@@ -149,6 +151,11 @@ export default function CalendarPage({ initialView, hideViewToggle = false }) {
     () => buildMissionDayMap(missions, range.start, range.end),
     [missions, range.start, range.end],
   )
+  // policy partagée (useSummary la fournit). Sert à déduire la pause auto
+  // pour que le total affiché par jour matche le Greeting de la HomePage.
+  // fetchOnMount=true au cas où on entre directement sur /calendar via URL.
+  const { summary } = useSummary()
+  const policy = summary?.policy
   const sessionsByDay = useMemo(() => {
     const m = new Map()
     for (const s of sessions) {
@@ -159,8 +166,12 @@ export default function CalendarPage({ initialView, hideViewToggle = false }) {
       if (s.clock_out_rounded) e.minutes += s.duration_minutes
       if (!s.clock_out) e.open = true
     }
+    // Applique la déduction de pause par jour (cohérent backend).
+    for (const e of m.values()) {
+      e.minutes = applyBreakDeduction(e.minutes, policy)
+    }
     return m
-  }, [sessions])
+  }, [sessions, policy])
 
   const holidaysByDay = useMemo(() => {
     const m = new Map()
