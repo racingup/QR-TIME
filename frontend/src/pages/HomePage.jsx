@@ -77,7 +77,7 @@ function Greeting() {
   // évite que HomePage, ScanPage, AbsenceRequestPage refetch chacun de leur côté.
   const { summary } = useSummary()
   // Tick local pour le compteur live tant que la session est ouverte.
-  const { minutes: worked, seconds, isLive } = useLiveWorkedTime(summary)
+  const { minutes: worked, isLive } = useLiveWorkedTime(summary)
 
   if (!summary) {
     return (
@@ -102,11 +102,6 @@ function Greeting() {
             {Math.floor(worked / 60)}
             <span className="text-base text-slate-500">h</span>
             {String(worked % 60).padStart(2, '0')}
-            {isLive && (
-              <span className="text-base text-emerald-600 ml-1">
-                :{String(seconds).padStart(2, '0')}
-              </span>
-            )}
             {isLive && (
               <span
                 className="inline-block w-2 h-2 rounded-full bg-emerald-500 ml-2 align-middle animate-pulse"

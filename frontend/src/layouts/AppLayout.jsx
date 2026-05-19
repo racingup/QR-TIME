@@ -70,10 +70,14 @@ export default function AppLayout() {
             />
             <span className="truncate">{brandName}</span>
           </NavLink>
-          <span className="text-xs text-slate-500 truncate max-w-[8rem]">
+          <NavLink
+            to="/profile"
+            className="text-xs text-slate-500 truncate max-w-[8rem] hover:text-slate-900 hover:underline press"
+            title="Mon profil"
+          >
             {user?.username}
             {user?.is_superuser && <span className="ml-1 text-purple-600">◆</span>}
-          </span>
+          </NavLink>
         </div>
       </header>
 
@@ -166,6 +170,9 @@ function Drawer({ user, alertCount, onClose, onLogout }) {
           </NavLink>
           <NavLink to="/my-data" onClick={close} className={linkClass}>
             Mes données
+          </NavLink>
+          <NavLink to="/profile" onClick={close} className={linkClass}>
+            Mon profil
           </NavLink>
           {(user?.is_manager || user?.is_superuser) && (
             <>

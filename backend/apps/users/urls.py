@@ -7,6 +7,7 @@ from rest_framework_simplejwt.views import (
 
 from apps.users.throttles import LoginIPThrottle, LoginUserThrottle
 from apps.users.views import (
+    MeChangePasswordView,
     MeCompanyView,
     MeConsentAcceptInitialView,
     MeConsentView,
@@ -14,6 +15,8 @@ from apps.users.views import (
     MeDeletionRequestView,
     MeExportView,
     MeHolidaysView,
+    MeHomeAddressRequestView,
+    MeProfileView,
     MeSummaryView,
 )
 
@@ -47,4 +50,8 @@ me_urlpatterns = [
     path("deletion-request/", MeDeletionRequestView.as_view(), name="me-deletion-request"),
     path("delete-account/", MeDeletionRequestView.as_view(), name="me-delete"),
     path("company/", MeCompanyView.as_view(), name="me-company"),
+    # Édition par l'employé de son propre profil.
+    path("profile/", MeProfileView.as_view(), name="me-profile"),
+    path("change-password/", MeChangePasswordView.as_view(), name="me-change-password"),
+    path("home-address-request/", MeHomeAddressRequestView.as_view(), name="me-home-address-request"),
 ]

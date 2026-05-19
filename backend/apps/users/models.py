@@ -539,3 +539,62 @@ class SiteQRAudit(models.Model):
 
     class Meta:
         ordering = ["-regenerated_at"]
+
+
+class HomeAddressChangeRequest(models.Model):
+    """Demande de changement d'adresse de domicile par un collaborateur.
+
+    Le domicile sert au calcul du temps de trajet supplémentaire en mission
+    (Art. 13 OLT 1). Changer cette adresse a un impact contractuel direct
+    (paiement de trajets) → workflow d'approbation RH identique à
+    DataDeletionRequest et ConsentWithdrawalRequest.
+
+    1. L'employé soumet la nouvelle adresse + commentaire (PENDING)
+    2. L'admin RH approuve → home_lat/home_lon mis à jour sur UserProfile
+       + standard_commute_minutes recalculé (best-effort via ORS)
+    3. Ou refuse → la demande est tracée, pas de modification
+    """
+
+    class Status(models.TextChoices):
+        PENDING  = "PENDING",  "En attente"
+        APPROVED = "APPROVED", "Approuvée"
+        REJECTED = "REJECTED", "Refusée"
+
+    user = models.ForeignKey(
+        "users.UserProfile", on_delete=models.CASCADE,
+        related_name="home_address_change_requests",
+    )
+    # Coordonnées proposées (séparées de UserProfile : pas encore actives).
+    new_home_lat = models.DecimalField(max_digits=9, decimal_places=6)
+    new_home_lon = models.DecimalField(max_digits=9, decimal_places=6)
+    # Adresse humaine (champ libre, ex : "Rue de la Paix 12, 1003 Lausanne")
+    # pour faciliter la revue par le RH.
+    new_address_label = models.CharField(
+        max_length=300, blank=True,
+        help_text="Étiquette humaine (rue, code postal, ville).",
+    )
+    user_reason = models.TextField(
+        blank=True,
+        help_text="Motif libre laissé par le collaborateur (déménagement, etc.).",
+    )
+    status = models.CharField(
+        max_length=10, choices=Status.choices, default=Status.PENDING,
+    )
+    decided_by = models.ForeignKey(
+        "users.UserProfile", on_delete=models.SET_NULL,
+        null=True, blank=True, related_name="decided_home_address_changes",
+    )
+    admin_comment = models.TextField(blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    decided_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        ordering = ["-created_at"]
+        constraints = [
+            # Une seule demande PENDING par employé à la fois.
+            models.UniqueConstraint(
+                fields=["user"],
+                condition=models.Q(status="PENDING"),
+                name="unique_pending_home_address_change_per_user",
+            ),
+        ]

@@ -21,6 +21,7 @@ const EmployeeDashboard = lazy(() => import('./pages/EmployeeDashboard'))
 const ManagerDashboard  = lazy(() => import('./pages/ManagerDashboard'))
 const MissionAdminPage  = lazy(() => import('./pages/MissionAdminPage'))
 const MyDataPage        = lazy(() => import('./pages/MyDataPage'))
+const ProfilePage       = lazy(() => import('./pages/ProfilePage'))
 const PrivacyPage       = lazy(() => import('./pages/PrivacyPage'))
 const QRPrintPage       = lazy(() => import('./pages/QRPrintPage'))
 const RequestsPage      = lazy(() => import('./pages/RequestsPage'))
@@ -108,6 +109,10 @@ export default function App() {
             <Route
               path="my-data"
               element={<Suspense fallback={<PageLoader />}><MyDataPage /></Suspense>}
+            />
+            <Route
+              path="profile"
+              element={<Suspense fallback={<PageLoader />}><ProfilePage /></Suspense>}
             />
             <Route
               path="history/:date"

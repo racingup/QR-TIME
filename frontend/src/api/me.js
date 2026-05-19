@@ -33,3 +33,30 @@ export const consentWithdrawal = {
   create: (kind, reason) =>
     api.post('/me/consent-withdrawal/', { kind, reason }).then((r) => r.data),
 }
+
+// ── Profil utilisateur ───────────────────────────────────────────────
+export const profile = {
+  get: () => api.get('/me/profile/').then((r) => r.data),
+  update: (fields) => api.patch('/me/profile/', fields).then((r) => r.data),
+}
+
+export const changePassword = (oldPassword, newPassword) =>
+  api
+    .post('/me/change-password/', {
+      old_password: oldPassword,
+      new_password: newPassword,
+    })
+    .then((r) => r.data)
+
+export const homeAddressRequest = {
+  get: () => api.get('/me/home-address-request/').then((r) => r.data),
+  create: ({ lat, lon, label, reason }) =>
+    api
+      .post('/me/home-address-request/', {
+        new_home_lat: lat,
+        new_home_lon: lon,
+        new_address_label: label,
+        reason,
+      })
+      .then((r) => r.data),
+}

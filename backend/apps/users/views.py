@@ -18,6 +18,7 @@ from apps.users.models import (
     ConsentLog,
     ConsentWithdrawalRequest,
     DataDeletionRequest,
+    HomeAddressChangeRequest,
     MajorationRule,
     Site,
     SiteHoliday,
@@ -477,6 +478,189 @@ def _serialize_withdrawal_request(req) -> dict:
         "kind": req.kind,
         "status": req.status,
         "user_reason": req.user_reason,
+        "admin_comment": req.admin_comment,
+        "created_at": req.created_at,
+        "decided_at": req.decided_at,
+    }
+
+
+# ── Profil utilisateur (édition par l'employé lui-même) ────────────────
+
+class MeProfileView(APIView):
+    """GET/PATCH /api/me/profile/ — édition par l'employé de ses champs personnels.
+
+    Champs éditables directement : email (pour notifications + récupération mdp),
+    first_name, last_name.
+
+    NON éditables ici (workflow d'approbation séparé) :
+      - home_lat / home_lon → HomeAddressChangeRequest
+      - password            → MeChangePasswordView (nécessite ancien mdp)
+      - is_manager / quotas → admin uniquement
+    """
+    permission_classes = [IsAuthenticated]
+
+    EDITABLE_FIELDS = {"email", "first_name", "last_name"}
+
+    def get(self, request):
+        u = request.user
+        # Demande de changement d'adresse en attente (pour affichage badge UI).
+        pending_addr = (
+            HomeAddressChangeRequest.objects
+            .filter(user=u, status=HomeAddressChangeRequest.Status.PENDING)
+            .first()
+        )
+        return Response({
+            "username": u.username,
+            "email": u.email or "",
+            "first_name": u.first_name or "",
+            "last_name": u.last_name or "",
+            "home_lat": float(u.home_lat) if u.home_lat is not None else None,
+            "home_lon": float(u.home_lon) if u.home_lon is not None else None,
+            "has_home_address": u.has_home_address,
+            "pending_home_address_change": _serialize_home_address_request(pending_addr) if pending_addr else None,
+        })
+
+    def patch(self, request):
+        u = request.user
+        updated = []
+        for key, value in request.data.items():
+            if key not in self.EDITABLE_FIELDS:
+                continue
+            # Validation minimaliste sur l'email.
+            if key == "email":
+                value = (value or "").strip()
+                if value and "@" not in value:
+                    return Response(
+                        {"error": "INVALID_EMAIL",
+                         "detail": "Adresse email invalide."},
+                        status=status.HTTP_400_BAD_REQUEST,
+                    )
+            setattr(u, key, value)
+            updated.append(key)
+        if updated:
+            u.save(update_fields=updated)
+        return Response({"ok": True, "updated_fields": updated})
+
+
+class MeChangePasswordView(APIView):
+    """POST /api/me/change-password/ — auto-changement du mot de passe.
+
+    Exige l'ancien mot de passe (anti-hijack si quelqu'un a juste un JWT).
+    Body : { old_password, new_password }
+    """
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request):
+        from django.contrib.auth.password_validation import validate_password
+        from django.core.exceptions import ValidationError as DjangoValidationError
+
+        user = request.user
+        old = request.data.get("old_password") or ""
+        new = request.data.get("new_password") or ""
+
+        if not user.check_password(old):
+            return Response(
+                {"error": "WRONG_OLD_PASSWORD",
+                 "detail": "Ancien mot de passe incorrect."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        try:
+            validate_password(new, user=user)
+        except DjangoValidationError as e:
+            return Response(
+                {"error": "WEAK_PASSWORD", "detail": " ".join(e.messages)},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        user.set_password(new)
+        user.save(update_fields=["password"])
+        return Response({"ok": True})
+
+
+class MeHomeAddressRequestView(APIView):
+    """GET/POST /api/me/home-address-request/ — demande RH de changement d'adresse.
+
+    Pattern identique à MeDeletionRequestView / MeConsentWithdrawalView.
+
+    GET  → demande PENDING active, ou null
+    POST → soumet une nouvelle demande {new_home_lat, new_home_lon, new_address_label, reason}
+    """
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        active = (
+            HomeAddressChangeRequest.objects
+            .filter(user=request.user, status=HomeAddressChangeRequest.Status.PENDING)
+            .first()
+        )
+        return Response({
+            "pending": _serialize_home_address_request(active) if active else None,
+        })
+
+    def post(self, request):
+        from services.audit import log_admin_action
+
+        lat = request.data.get("new_home_lat")
+        lon = request.data.get("new_home_lon")
+        if lat is None or lon is None:
+            return Response(
+                {"error": "MISSING_COORDS",
+                 "detail": "Les coordonnées (lat, lon) sont requises."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        try:
+            lat = float(lat)
+            lon = float(lon)
+        except (TypeError, ValueError):
+            return Response(
+                {"error": "INVALID_COORDS",
+                 "detail": "Coordonnées non numériques."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        if not (-90 <= lat <= 90) or not (-180 <= lon <= 180):
+            return Response(
+                {"error": "OUT_OF_RANGE",
+                 "detail": "Latitude/longitude hors bornes."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        existing = HomeAddressChangeRequest.objects.filter(
+            user=request.user, status=HomeAddressChangeRequest.Status.PENDING,
+        ).first()
+        if existing:
+            return Response(
+                {"error": "ALREADY_PENDING",
+                 "detail": "Une demande de changement d'adresse est déjà en attente.",
+                 "request": _serialize_home_address_request(existing)},
+                status=status.HTTP_409_CONFLICT,
+            )
+
+        req = HomeAddressChangeRequest.objects.create(
+            user=request.user,
+            new_home_lat=lat, new_home_lon=lon,
+            new_address_label=(request.data.get("new_address_label") or "")[:300],
+            user_reason=(request.data.get("reason") or "")[:1000],
+        )
+        log_admin_action(
+            actor=request.user, action=AdminAuditLog.Action.USER_UPDATE,
+            target_user=request.user,
+            object_type="HomeAddressChangeRequest", object_id=str(req.pk),
+            details={"workflow": "home_address_request_created"},
+            request=request,
+        )
+        return Response(
+            {"ok": True, "request": _serialize_home_address_request(req)},
+            status=status.HTTP_201_CREATED,
+        )
+
+
+def _serialize_home_address_request(req) -> dict:
+    return {
+        "id": req.pk,
+        "new_home_lat": float(req.new_home_lat),
+        "new_home_lon": float(req.new_home_lon),
+        "new_address_label": req.new_address_label,
+        "user_reason": req.user_reason,
+        "status": req.status,
         "admin_comment": req.admin_comment,
         "created_at": req.created_at,
         "decided_at": req.decided_at,
