@@ -50,6 +50,8 @@ export function useClock() {
         setState({ status: 'exempt', data: body })
       } else if (e.response?.status === 409 && body?.error === 'OPEN_SESSION_PREVIOUS_DAY') {
         setState({ status: 'open_session_previous_day', data: body })
+      } else if (e.response?.status === 410 && body?.error === 'STALE_QR') {
+        setState({ status: 'stale_qr', data: body })
       } else if (e.response?.status === 404) {
         setState({ status: 'error', error: 'QR inconnu' })
       } else {

@@ -815,6 +815,8 @@ function SitesTab() {
   const [sites, setSites] = useState([])
   const [editing, setEditing] = useState(null)
   const [deletingId, setDeletingId] = useState(null)
+  const [regenerating, setRegenerating] = useState(null) // site complet pour modal
+  const [regenSaving, setRegenSaving] = useState(false)
 
   const refresh = () => adminApi.sites.list().then((d) => setSites(d.results || d))
   useEffect(() => { refresh() }, [])
@@ -864,7 +866,7 @@ function SitesTab() {
                 className="press px-3 py-1 rounded-full glass-soft text-xs">
                 📱 QR
               </Link>
-              <button type="button" onClick={async () => { await adminApi.sites.regenQr(s.id); refresh() }}
+              <button type="button" onClick={() => setRegenerating(s)}
                 className="press px-3 py-1 rounded-full glass-soft text-xs text-amber-700">
                 ↻ Nouveau QR
               </button>
@@ -888,6 +890,56 @@ function SitesTab() {
               <button type="button" onClick={async () => { await adminApi.sites.remove(deletingId); setDeletingId(null); refresh() }}
                 className="press bg-rose-600 text-white px-4 py-2 rounded-xl text-sm">
                 Supprimer
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal de confirmation regen QR — action irréversible côté collaborateurs */}
+      {regenerating && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+          <div className="absolute inset-0 bg-slate-900/30 backdrop-blur-sm" onClick={() => !regenSaving && setRegenerating(null)} aria-hidden />
+          <div className="relative glass-strong w-full max-w-md rounded-3xl p-5 space-y-4">
+            <p className="font-semibold text-slate-900">
+              ↻ Régénérer le QR du site{' '}
+              <span className="font-mono">{regenerating.name}</span> ?
+            </p>
+            <div className="glass-soft rounded-xl p-3 space-y-2 text-sm text-amber-800 bg-amber-50/40">
+              <p>⚠ <strong>L'ancien QR sera désactivé immédiatement.</strong></p>
+              <ul className="list-disc list-inside text-xs space-y-1">
+                <li>Tous les supports imprimés / affichés de l'ancien QR ne fonctionneront plus.</li>
+                <li>Les collaborateurs qui scanneront l'ancien QR seront refusés (et la tentative tracée dans le journal d'audit).</li>
+                <li>Vous devrez ré-imprimer et redistribuer le nouveau QR (Site → 📱 QR).</li>
+              </ul>
+            </div>
+            <p className="text-xs text-slate-500">
+              À faire typiquement après une fuite suspectée du QR, un changement
+              de personnel, ou un nettoyage périodique de sécurité.
+            </p>
+            <div className="flex gap-2 justify-end">
+              <button
+                type="button"
+                onClick={() => !regenSaving && setRegenerating(null)}
+                disabled={regenSaving}
+                className="press px-4 py-2 text-sm glass-soft rounded-xl text-slate-700"
+              >Annuler</button>
+              <button
+                type="button"
+                disabled={regenSaving}
+                onClick={async () => {
+                  setRegenSaving(true)
+                  try {
+                    await adminApi.sites.regenQr(regenerating.id)
+                    setRegenerating(null)
+                    refresh()
+                  } finally {
+                    setRegenSaving(false)
+                  }
+                }}
+                className="press bg-amber-600 text-white px-4 py-2 rounded-xl text-sm font-medium disabled:opacity-50"
+              >
+                {regenSaving ? 'Régénération…' : 'Confirmer la régénération'}
               </button>
             </div>
           </div>

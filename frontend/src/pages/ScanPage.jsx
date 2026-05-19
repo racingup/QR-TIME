@@ -325,6 +325,23 @@ export default function ScanPage() {
         </div>
       )}
 
+      {state.status === 'stale_qr' && (
+        <div className="glass-strong rounded-3xl p-6 max-w-sm w-full text-center mt-6">
+          <p className="text-5xl">⛔</p>
+          <p className="font-semibold text-amber-700 mt-2">QR obsolète</p>
+          <p className="text-sm text-slate-700 mt-3">
+            {state.data?.detail}
+          </p>
+          <p className="text-xs text-slate-500 mt-2">
+            Demandez à votre manager le nouveau QR à afficher sur place.
+            La tentative a été tracée dans le journal d'audit.
+          </p>
+          <button type="button" onClick={handleReset} className="pill pill-ghost mt-5">
+            Compris
+          </button>
+        </div>
+      )}
+
       {state.status === 'error' && (
         <div className="glass-strong rounded-3xl p-6 max-w-sm w-full text-center mt-6">
           <p className="text-5xl">✗</p>

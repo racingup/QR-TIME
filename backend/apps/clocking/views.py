@@ -64,6 +64,45 @@ class ScanView(APIView):
         if site is None:
             mission = Mission.objects.filter(qr_token=qr_token).first()
             if mission is None:
+                # Token introuvable — vérifier si c'est un ANCIEN QR de site
+                # (rotation antérieure) pour pouvoir donner un message clair
+                # à l'utilisateur ET tracer la tentative dans l'audit log.
+                from apps.users.models import SiteQRAudit, AdminAuditLog
+                from services.audit import log_admin_action
+                stale_audit = (
+                    SiteQRAudit.objects
+                    .filter(old_token=qr_token)
+                    .select_related("site")
+                    .order_by("-regenerated_at")
+                    .first()
+                )
+                if stale_audit:
+                    log_admin_action(
+                        actor=user,
+                        action=AdminAuditLog.Action.SITE_QR_ROTATE,
+                        target_user=user,
+                        object_type="stale_qr_scan",
+                        object_id=str(stale_audit.site_id),
+                        details={
+                            "outcome": "STALE_QR_SCANNED",
+                            "site_name": stale_audit.site.name,
+                            "rotated_at": stale_audit.regenerated_at.isoformat(),
+                        },
+                        request=request,
+                    )
+                    return Response(
+                        {
+                            "error": "STALE_QR",
+                            "detail": (
+                                f"Ce QR code a été remplacé le "
+                                f"{stale_audit.regenerated_at:%d/%m/%Y à %H:%M}. "
+                                f"Veuillez utiliser le nouveau QR du site "
+                                f"« {stale_audit.site.name} »."
+                            ),
+                            "site_name": stale_audit.site.name,
+                        },
+                        status=status.HTTP_410_GONE,
+                    )
                 return Response(
                     {"error": "TOKEN_NOT_FOUND"},
                     status=status.HTTP_404_NOT_FOUND,
