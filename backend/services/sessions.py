@@ -154,7 +154,13 @@ def apply_break_deduction(minutes: int, policy=None) -> int:
     return max(0, minutes - deduction)
 
 
-def worked_minutes_on_day(user, day: date_type, *, apply_policy: bool = False) -> int:
+def worked_minutes_on_day(
+    user,
+    day: date_type,
+    *,
+    apply_policy: bool = False,
+    include_open: bool = False,
+) -> int:
     """Minutes travaillées pour un jour donné, en tronquant les sessions
     qui traversent minuit à [00:00, 24:00[ du jour.
 
@@ -165,10 +171,19 @@ def worked_minutes_on_day(user, day: date_type, *, apply_policy: bool = False) -
     day_start = timezone.make_aware(datetime.combine(day, time.min), tz)
     day_end = day_start + timedelta(days=1)
 
+    now = timezone.now() if include_open else None
+
     intervals: list[tuple[datetime, datetime]] = []
     for s in sessions_overlapping_day(user, day):
         iv = _interval_of(s)
         if iv is None:
+            # Session ouverte (clock_out=None) — incluse en mode live :
+            # on borne sa fin à maintenant (ou fin du jour si on est passé).
+            if include_open and s.clock_out is None:
+                start = s.clock_in_rounded or s.clock_in
+                end = min(now, day_end)
+                if end > start:
+                    intervals.append((max(start, day_start), end))
             continue
         start, end = iv
         # Tronquer au jour

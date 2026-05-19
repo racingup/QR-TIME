@@ -3,6 +3,7 @@ import { Link, useNavigate } from 'react-router-dom'
 import * as clockApi from '../api/clock'
 import * as meApi from '../api/me'
 import { useSummary } from '../hooks/useSummary'
+import { useLiveWorkedTime } from '../hooks/useLiveWorkedMinutes'
 import CalendarPage from './CalendarPage'
 
 const TABS = [
@@ -75,6 +76,8 @@ function Greeting() {
   // useSummary partage l'objet entre tous les composants montés simultanément :
   // évite que HomePage, ScanPage, AbsenceRequestPage refetch chacun de leur côté.
   const { summary } = useSummary()
+  // Tick local pour le compteur live tant que la session est ouverte.
+  const { minutes: worked, seconds, isLive } = useLiveWorkedTime(summary)
 
   if (!summary) {
     return (
@@ -82,7 +85,6 @@ function Greeting() {
     )
   }
 
-  const worked = summary.today.worked_minutes
   const target = summary.today.target_minutes
   const pct = Math.min(100, Math.round((worked / Math.max(target, 1)) * 100))
   const overtime = parseFloat(summary.overtime_balance_hours)
@@ -100,9 +102,22 @@ function Greeting() {
             {Math.floor(worked / 60)}
             <span className="text-base text-slate-500">h</span>
             {String(worked % 60).padStart(2, '0')}
+            {isLive && (
+              <span className="text-base text-emerald-600 ml-1">
+                :{String(seconds).padStart(2, '0')}
+              </span>
+            )}
+            {isLive && (
+              <span
+                className="inline-block w-2 h-2 rounded-full bg-emerald-500 ml-2 align-middle animate-pulse"
+                aria-label="Session en cours"
+                title="Session en cours"
+              />
+            )}
           </p>
           <p className="text-xs text-slate-500">
             sur {Math.floor(target / 60)}h{String(target % 60).padStart(2, '0')} aujourd'hui
+            {isLive && <span className="text-emerald-600 ml-1">· en cours</span>}
           </p>
         </div>
         <div className="text-right">

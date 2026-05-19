@@ -516,16 +516,27 @@ class MeSummaryView(APIView):
         from services.sessions import worked_minutes_on_day
         user = request.user
         today = timezone.localdate()
-        # Calcul cohérent avec DayDetailView : union d'intervalles +
-        # support des sessions traversant minuit + déduction automatique
-        # de la pause (si WorkTimePolicy.auto_deduct_break est actif).
-        worked_minutes = worked_minutes_on_day(user, today, apply_policy=True)
+        # Calcul live : inclut la session ouverte (cap = now), applique
+        # la déduction automatique de pause. Le frontend interpole entre
+        # 2 polls via un tick local (cf. useLiveWorkedMinutes).
+        worked_minutes = worked_minutes_on_day(
+            user, today, apply_policy=True, include_open=True,
+        )
         open_session = (
             ClockSession.objects
             .filter(user=user, clock_out__isnull=True)
             .order_by("-clock_in")
             .first()
         )
+        # Pour le tick live côté front : on expose le clock_in_rounded de
+        # la session ouverte UNIQUEMENT si elle est démarrée aujourd'hui
+        # (les sessions de la veille déclenchent la garde OPEN_SESSION_PREVIOUS_DAY,
+        # donc impossible en pratique mais on est défensif).
+        open_session_clock_in_rounded = None
+        if open_session and open_session.clock_in.date() == today:
+            open_session_clock_in_rounded = (
+                open_session.clock_in_rounded or open_session.clock_in
+            )
         home_site = None
         if user.home_site_id:
             s = user.home_site
@@ -557,6 +568,12 @@ class MeSummaryView(APIView):
                 "worked_minutes": worked_minutes,
                 "target_minutes": int(user.daily_target_hours * 60),
                 "has_open_session": open_session is not None,
+                # Timestamp ISO du clock_in arrondi de la session en cours,
+                # pour permettre au front de ticker le compteur live.
+                "open_session_clock_in_rounded": (
+                    open_session_clock_in_rounded.isoformat()
+                    if open_session_clock_in_rounded else None
+                ),
             },
             "policy": {
                 "auto_deduct_break": policy.auto_deduct_break,
