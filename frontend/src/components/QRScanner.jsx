@@ -38,11 +38,11 @@ export default function QRScanner({ onDecode, onError }) {
           return
         }
         const camId = devices[devices.length - 1].id // back camera on phones
-        // qrbox dynamique = 85% du min(width, height) de la vidéo →
-        // carré qui couvre la majorité du flux caméra (vs 240×240 fixe).
+        // qrbox dynamique = 100% du min(width, height) du flux caméra.
+        // La zone de détection couvre toute la fenêtre — un QR mal cadré
+        // est quand même détecté tant qu'il rentre dans l'écran.
         const qrbox = (viewportWidth, viewportHeight) => {
-          const minEdge = Math.min(viewportWidth, viewportHeight)
-          const size = Math.floor(minEdge * 0.85)
+          const size = Math.min(viewportWidth, viewportHeight)
           return { width: size, height: size }
         }
         return scanner.start(
