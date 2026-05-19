@@ -167,7 +167,7 @@ class AdminUserSerializer(serializers.ModelSerializer):
             "is_active", "home_site", "password",
             "home_site_latitude", "home_site_longitude",
             # Domicile + trajet standard (Art. 13 al. 3 OLT 1).
-            "home_lat", "home_lon", "standard_commute_minutes",
+            "home_lat", "home_lon", "home_address_label", "standard_commute_minutes",
             # Règles de travail
             "exempt_from_clocking", "can_edit_locked_months", "manager",
         ]

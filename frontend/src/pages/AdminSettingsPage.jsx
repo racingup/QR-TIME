@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import * as adminApi from '../api/admin'
 import MapPicker from '../components/MapPicker'
+import AddressPicker from '../components/AddressPicker'
 import { useAuth } from '../hooks/useAuth'
 import { useCompany } from '../hooks/useCompany'
 
@@ -1342,7 +1343,7 @@ function UsersTab() {
                   } ${isAnonymized ? 'opacity-50 cursor-not-allowed' : ''}`}
                   title={
                     u.home_lat != null
-                      ? `lat ${Number(u.home_lat).toFixed(4)}, lon ${Number(u.home_lon).toFixed(4)}`
+                      ? (u.home_address_label || 'Adresse définie')
                       : 'Cliquer pour définir sur la carte'
                   }
                 >
@@ -1469,8 +1470,12 @@ function UsersTab() {
             return s ? [Number(s.latitude), Number(s.longitude)] : null
           })()}
           onClose={() => setHomeEditing(null)}
-          onSave={async (lat, lon) => {
-            await updateMany(homeEditing.id, { home_lat: lat, home_lon: lon })
+          onSave={async (lat, lon, label) => {
+            await updateMany(homeEditing.id, {
+              home_lat: lat,
+              home_lon: lon,
+              home_address_label: label || '',
+            })
             setHomeEditing(null)
           }}
           onClear={async () => {
@@ -1838,12 +1843,11 @@ function WorkTimeTab() {
 
 
 function HomeAddressModal({ user, siteCenter, onClose, onSave, onClear }) {
-  // Important : on stocke et envoie des valeurs ARRONDIES à 6 décimales.
-  // Leaflet renvoie des floats à 13-15 décimales, mais le DecimalField
-  // côté backend (max_digits=9, decimal_places=6) refuse au-delà.
+  // Coords ARRONDIES à 6 décimales (limite du DecimalField backend).
   const round6 = (n) => (n == null ? null : Number(Number(n).toFixed(6)))
   const [lat, setLat] = useState(round6(user.home_lat))
   const [lon, setLon] = useState(round6(user.home_lon))
+  const [label, setLabel] = useState(user.home_address_label || '')
   const [saving, setSaving] = useState(false)
   const [err, setErr] = useState(null)
   const [confirmingClear, setConfirmingClear] = useState(false)
@@ -1853,10 +1857,8 @@ function HomeAddressModal({ user, siteCenter, onClose, onSave, onClear }) {
     setSaving(true)
     setErr(null)
     try {
-      await onSave(round6(lat), round6(lon))
+      await onSave(round6(lat), round6(lon), label)
     } catch (e) {
-      // Surface l'erreur réseau / 400 / 403 pour qu'elle ne reste pas
-      // dans la console et que le bouton n'ait pas l'air mort.
       setErr(
         e?.response?.data
           ? JSON.stringify(e.response.data)
@@ -1895,22 +1897,20 @@ function HomeAddressModal({ user, siteCenter, onClose, onSave, onClear }) {
           <button type="button" onClick={onClose} className="press w-8 h-8 rounded-lg glass-soft text-slate-600">✕</button>
         </div>
         <p className="text-xs text-slate-600">
-          Cliquez sur la carte pour positionner le domicile du collaborateur.
-          Le trajet domicile → site sera recalculé automatiquement à l'enregistrement
-          (sauf si vous avez saisi manuellement le temps standard de trajet).
+          Cherchez l'adresse ou cliquez sur la carte. Le trajet domicile → site
+          sera recalculé automatiquement à l'enregistrement.
         </p>
-        <MapPicker
-          lat={lat ?? undefined}
-          lon={lon ?? undefined}
-          defaultCenter={siteCenter}
-          onPick={(la, lo) => { setLat(round6(la)); setLon(round6(lo)) }}
+        <AddressPicker
+          initialLat={lat ?? undefined}
+          initialLon={lon ?? undefined}
+          initialLabel={label}
+          onPick={({ lat: la, lon: lo, label: lb }) => {
+            setLat(round6(la))
+            setLon(round6(lo))
+            setLabel(lb || '')
+          }}
           height={380}
         />
-        <div className="text-xs text-slate-500 font-mono glass-soft rounded-xl px-3 py-2">
-          {lat != null && lon != null
-            ? `📍 lat ${lat.toFixed(6)}, lon ${lon.toFixed(6)}`
-            : '— Aucun point sélectionné'}
-        </div>
         {err && (
           <p className="text-xs text-rose-700 glass rounded-xl px-3 py-2 break-all">
             ⚠ {err}
@@ -2133,11 +2133,14 @@ function HomeAddressRequestsTab() {
                         >Approuver</button>
                       </div>
                     </div>
-                    <p className="text-xs font-mono text-slate-700">
-                      📍 {r.new_home_lat.toFixed(5)}, {r.new_home_lon.toFixed(5)}
-                    </p>
-                    {r.new_address_label && (
-                      <p className="text-xs text-slate-600 italic">« {r.new_address_label} »</p>
+                    {r.new_address_label ? (
+                      <p className="text-sm text-slate-800">
+                        📍 {r.new_address_label}
+                      </p>
+                    ) : (
+                      <p className="text-xs italic text-slate-500">
+                        📍 (adresse non résolue automatiquement)
+                      </p>
                     )}
                     {r.user_reason && (
                       <p className="text-xs text-slate-500">Motif : {r.user_reason}</p>
@@ -2146,7 +2149,7 @@ function HomeAddressRequestsTab() {
                       href={`https://www.openstreetmap.org/?mlat=${r.new_home_lat}&mlon=${r.new_home_lon}#map=17/${r.new_home_lat}/${r.new_home_lon}`}
                       target="_blank" rel="noopener noreferrer"
                       className="text-xs text-blue-600 underline"
-                    >Voir sur OpenStreetMap ↗</a>
+                    >Vérifier sur la carte ↗</a>
                   </li>
                 ))}
               </ul>
@@ -2165,8 +2168,8 @@ function HomeAddressRequestsTab() {
                       {r.status === 'APPROVED' ? 'Approuvé' : 'Refusé'}
                     </span>
                     <span className="font-mono">{r.user.username}</span>
-                    <span className="text-slate-500">
-                      → {r.new_home_lat.toFixed(3)}, {r.new_home_lon.toFixed(3)}
+                    <span className="text-slate-500 truncate max-w-xs">
+                      → {r.new_address_label || `${r.new_home_lat.toFixed(3)}, ${r.new_home_lon.toFixed(3)}`}
                     </span>
                     <span className="text-slate-400 ml-auto">
                       {r.decided_at ? new Date(r.decided_at).toLocaleDateString('fr-FR') : ''}
@@ -2217,14 +2220,13 @@ function HomeAddressDecideModal({ req, action, onClose, onSaved }) {
           {isApprove ? '✓ Approuver' : '✕ Refuser'} la demande de{' '}
           <span className="font-mono">{req.user.username}</span>
         </h3>
-        <p className="text-xs text-slate-600">
-          Nouvelles coordonnées : <span className="font-mono">{req.new_home_lat.toFixed(5)}, {req.new_home_lon.toFixed(5)}</span>
+        <p className="text-sm text-slate-700 glass-soft rounded-xl p-2">
+          📍 {req.new_address_label || (
+            <span className="italic text-slate-500">
+              (adresse non résolue, voir sur la carte)
+            </span>
+          )}
         </p>
-        {req.new_address_label && (
-          <p className="text-xs text-slate-700 glass-soft rounded-xl p-2 italic">
-            « {req.new_address_label} »
-          </p>
-        )}
         {isApprove && (
           <p className="text-xs text-emerald-700 glass-soft rounded-xl p-2">
             Les coordonnées seront appliquées immédiatement et le trajet

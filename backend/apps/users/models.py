@@ -53,6 +53,14 @@ class UserProfile(AbstractUser):
         max_digits=9, decimal_places=6, null=True, blank=True,
         help_text="Longitude du domicile, sélectionnée sur carte par l'admin.",
     )
+    home_address_label = models.CharField(
+        max_length=300, blank=True,
+        help_text=(
+            "Adresse résolue (rue, code postal, ville). Utilisée pour "
+            "l'affichage à l'utilisateur — les coords brutes ne sont jamais "
+            "exposées dans l'UI."
+        ),
+    )
     standard_commute_minutes = models.PositiveIntegerField(
         null=True, blank=True,
         help_text=(

@@ -106,6 +106,9 @@ def _apply_home_address_change(sender, instance, created, **kwargs):
     user = instance.user
     user.home_lat = instance.new_home_lat
     user.home_lon = instance.new_home_lon
+    # Le label humain est aussi propagé (sert à l'affichage UI).
+    if instance.new_address_label:
+        user.home_address_label = instance.new_address_label
 
     # Best-effort recompute commute via OpenRouteService (si ORS_API_KEY set).
     try:
@@ -120,4 +123,6 @@ def _apply_home_address_change(sender, instance, created, **kwargs):
     except Exception:
         pass  # fail-open : l'admin peut éditer manuellement la durée
 
-    user.save(update_fields=["home_lat", "home_lon", "standard_commute_minutes"])
+    user.save(update_fields=[
+        "home_lat", "home_lon", "home_address_label", "standard_commute_minutes",
+    ])

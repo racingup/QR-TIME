@@ -3,7 +3,7 @@ import { Link } from 'react-router-dom'
 import * as meApi from '../api/me'
 import { useAuth } from '../hooks/useAuth'
 
-const MapPicker = lazy(() => import('../components/MapPicker'))
+const AddressPicker = lazy(() => import('../components/AddressPicker'))
 
 /**
  * Page de profil utilisateur — édition par l'employé lui-même.
@@ -238,7 +238,7 @@ function PasswordSection() {
   )
 }
 
-// ── Section 3 : Adresse de domicile via MapPicker (workflow RH) ─────
+// ── Section 3 : Adresse de domicile (recherche + map, workflow RH) ──
 function HomeAddressSection({ profile, onChange }) {
   const { user } = useAuth()
   const isSuperuser = Boolean(user?.is_superuser)
@@ -246,7 +246,7 @@ function HomeAddressSection({ profile, onChange }) {
     open: false,
     lat: profile.home_lat ?? null,
     lon: profile.home_lon ?? null,
-    label: '',
+    label: profile.home_address_label || '',
     reason: '',
   })
   const [submitting, setSubmitting] = useState(false)
@@ -264,12 +264,11 @@ function HomeAddressSection({ profile, onChange }) {
       const resp = await meApi.homeAddressRequest.create({
         lat: form.lat, lon: form.lon, label: form.label, reason: form.reason,
       })
-      // Pour superuser : la demande est auto-approuvée + signal applique.
-      // On reflète l'état dans le profil affiché.
       if (isSuperuser) {
         onChange({
           home_lat: form.lat,
           home_lon: form.lon,
+          home_address_label: form.label,
           has_home_address: true,
           pending_home_address_change: null,
         })
@@ -284,7 +283,7 @@ function HomeAddressSection({ profile, onChange }) {
           msg: 'Demande envoyée à l\'administrateur RH.',
         })
       }
-      setForm({ ...form, open: false, label: '', reason: '' })
+      setForm({ ...form, open: false, reason: '' })
     } catch (err) {
       const data = err.response?.data
       if (data?.error === 'ALREADY_PENDING' && data.request) {
@@ -297,10 +296,6 @@ function HomeAddressSection({ profile, onChange }) {
       setSubmitting(false)
     }
   }
-
-  const defaultCenter = profile.has_home_address
-    ? [profile.home_lat, profile.home_lon]
-    : [46.519962, 6.633597] // Lausanne par défaut
 
   return (
     <section className="glass rounded-3xl p-5 space-y-3">
@@ -321,18 +316,17 @@ function HomeAddressSection({ profile, onChange }) {
           <>
             Toute modification a un impact contractuel (calcul du trajet
             pro compensable en mission). Votre demande est{' '}
-            <strong>transmise à votre administrateur RH</strong>, qui
-            validera avant que la nouvelle adresse soit appliquée.
+            <strong>transmise à votre administrateur RH</strong>.
           </>
         )}
       </p>
 
-      {/* Adresse actuelle */}
+      {/* Adresse actuelle — affichée en TEXTE, jamais en coordonnées */}
       <div className="glass-soft rounded-2xl p-3 text-sm">
-        <p className="text-slate-600">Adresse actuelle :</p>
+        <p className="text-slate-600 text-xs">Adresse actuelle</p>
         {profile.has_home_address ? (
-          <p className="font-mono text-slate-800 mt-1">
-            {profile.home_lat?.toFixed(5)}, {profile.home_lon?.toFixed(5)}
+          <p className="text-slate-800 mt-1">
+            📍 {profile.home_address_label || 'Adresse définie (libellé non résolu)'}
           </p>
         ) : (
           <p className="text-slate-400 italic mt-1">Non renseignée</p>
@@ -347,11 +341,10 @@ function HomeAddressSection({ profile, onChange }) {
               {' '}— soumise le {new Date(pending.created_at).toLocaleString('fr-FR')}
             </span>
           </p>
-          <p className="text-sm font-mono text-slate-700">
-            Nouvelles coordonnées : {pending.new_home_lat.toFixed(5)}, {pending.new_home_lon.toFixed(5)}
-          </p>
           {pending.new_address_label && (
-            <p className="text-xs text-slate-600 italic">« {pending.new_address_label} »</p>
+            <p className="text-sm text-slate-700">
+              📍 {pending.new_address_label}
+            </p>
           )}
           {pending.user_reason && (
             <p className="text-xs text-slate-500">Motif : {pending.user_reason}</p>
@@ -367,51 +360,33 @@ function HomeAddressSection({ profile, onChange }) {
         </button>
       ) : (
         <div className="glass-soft rounded-2xl p-3 space-y-3">
-          <p className="text-xs text-slate-600">
-            👆 Cliquez sur la carte à l'emplacement de votre domicile.
-          </p>
-          <div className="rounded-xl overflow-hidden border border-slate-200">
-            <Suspense
-              fallback={<div className="h-72 flex items-center justify-center text-sm text-slate-400">Chargement de la carte…</div>}
-            >
-              <MapPicker
-                lat={form.lat}
-                lon={form.lon}
-                defaultCenter={defaultCenter}
-                onPick={({ lat, lon }) => setForm({ ...form, lat, lon })}
-                height={300}
-              />
-            </Suspense>
-          </div>
-          {form.lat != null && form.lon != null && (
-            <p className="text-xs font-mono text-slate-600">
-              📍 {form.lat.toFixed(5)}, {form.lon.toFixed(5)}
-            </p>
-          )}
+          <Suspense
+            fallback={
+              <div className="h-80 flex items-center justify-center text-sm text-slate-400">
+                Chargement…
+              </div>
+            }
+          >
+            <AddressPicker
+              initialLat={form.lat}
+              initialLon={form.lon}
+              initialLabel={form.label}
+              onPick={({ lat, lon, label }) => setForm({ ...form, lat, lon, label })}
+              height={300}
+            />
+          </Suspense>
+
           {!isSuperuser && (
-            <>
-              <label className="block text-sm">
-                <span className="text-slate-600">Adresse (libellé pour le RH)</span>
-                <input
-                  type="text"
-                  className="glass-input w-full mt-1"
-                  value={form.label}
-                  onChange={(e) => setForm({ ...form, label: e.target.value })}
-                  placeholder="Rue de la Paix 12, 1003 Lausanne"
-                  maxLength={300}
-                />
-              </label>
-              <label className="block text-sm">
-                <span className="text-slate-600">Motif (optionnel)</span>
-                <textarea
-                  className="glass-input w-full mt-1 h-16"
-                  value={form.reason}
-                  onChange={(e) => setForm({ ...form, reason: e.target.value })}
-                  placeholder="Ex : déménagement le 01/06"
-                  maxLength={1000}
-                />
-              </label>
-            </>
+            <label className="block text-sm">
+              <span className="text-slate-600">Motif (optionnel)</span>
+              <textarea
+                className="glass-input w-full mt-1 h-16"
+                value={form.reason}
+                onChange={(e) => setForm({ ...form, reason: e.target.value })}
+                placeholder="Ex : déménagement le 01/06"
+                maxLength={1000}
+              />
+            </label>
           )}
           {feedback && (
             <p

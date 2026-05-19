@@ -514,8 +514,12 @@ class MeProfileView(APIView):
             "email": u.email or "",
             "first_name": u.first_name or "",
             "last_name": u.last_name or "",
+            # Les coords brutes restent disponibles pour le composant carte
+            # (qui sait gérer une position initiale), mais l'UI affiche
+            # uniquement `home_address_label` à l'utilisateur.
             "home_lat": float(u.home_lat) if u.home_lat is not None else None,
             "home_lon": float(u.home_lon) if u.home_lon is not None else None,
+            "home_address_label": u.home_address_label or "",
             "has_home_address": u.has_home_address,
             "pending_home_address_change": _serialize_home_address_request(pending_addr) if pending_addr else None,
         })
