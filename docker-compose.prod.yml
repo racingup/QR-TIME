@@ -92,6 +92,9 @@ services:
       INITIAL_SUPERUSER_USERNAME: ${INITIAL_SUPERUSER_USERNAME:-}
       INITIAL_SUPERUSER_PASSWORD: ${INITIAL_SUPERUSER_PASSWORD:-}
       INITIAL_SUPERUSER_EMAIL: ${INITIAL_SUPERUSER_EMAIL:-}
+      # Clé secrète 15 chiffres pour promouvoir un user en admin général.
+      # Doit être renseignée dans le .env de prod. Si vide → feature désactivée (503).
+      SUPERUSER_PROMOTION_KEY: ${SUPERUSER_PROMOTION_KEY:-}
     depends_on:
       db:
         condition: service_healthy
