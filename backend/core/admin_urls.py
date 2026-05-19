@@ -9,6 +9,9 @@ from apps.users.views import (
     AdminConsentWithdrawalListView,
     AdminDeletionRequestDecisionView,
     AdminDeletionRequestListView,
+    AdminHomeAddressRequestDecideView,
+    AdminHomeAddressRequestListView,
+    AdminPromoteSuperuserView,
     AdminUserViewSet,
     CompanySettingsAdminView,
     MajorationRuleDetailView,
@@ -46,4 +49,9 @@ urlpatterns = [
     path("majoration-rules/<int:pk>/", MajorationRuleDetailView.as_view(), name="admin-majoration-rule-detail"),
     path("consent-withdrawals/", AdminConsentWithdrawalListView.as_view(), name="admin-consent-withdrawals"),
     path("consent-withdrawals/<int:pk>/", AdminConsentWithdrawalDecideView.as_view(), name="admin-consent-withdrawal-decide"),
+    # Workflow d'approbation des changements d'adresse de domicile.
+    path("home-address-requests/", AdminHomeAddressRequestListView.as_view(), name="admin-home-address-requests"),
+    path("home-address-requests/<int:pk>/", AdminHomeAddressRequestDecideView.as_view(), name="admin-home-address-request-decide"),
+    # Promotion en admin général (superuser) avec clé secrète.
+    path("users/<int:pk>/promote-superuser/", AdminPromoteSuperuserView.as_view(), name="admin-promote-superuser"),
 ]

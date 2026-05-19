@@ -9,7 +9,11 @@ from __future__ import annotations
 from django.db.models.signals import post_save, pre_save
 from django.dispatch import receiver
 
-from apps.users.models import ConsentLog, ConsentWithdrawalRequest
+from apps.users.models import (
+    ConsentLog,
+    ConsentWithdrawalRequest,
+    HomeAddressChangeRequest,
+)
 
 
 # Cache du status précédent pour détecter la transition PENDING → APPROVED.
@@ -67,3 +71,53 @@ def _apply_consent_withdrawal(sender, instance, created, **kwargs):
         if not instance.user.must_accept_consent:
             instance.user.must_accept_consent = True
             instance.user.save(update_fields=["must_accept_consent"])
+
+
+# ── HomeAddressChangeRequest : auto-apply quand APPROVED ───────────────
+@receiver(pre_save, sender=HomeAddressChangeRequest)
+def _cache_previous_home_address_status(sender, instance, **kwargs):
+    if instance.pk:
+        try:
+            instance._previous_status = (
+                HomeAddressChangeRequest.objects.only("status")
+                .get(pk=instance.pk).status
+            )
+        except HomeAddressChangeRequest.DoesNotExist:
+            instance._previous_status = None
+    else:
+        instance._previous_status = None
+
+
+@receiver(post_save, sender=HomeAddressChangeRequest)
+def _apply_home_address_change(sender, instance, created, **kwargs):
+    """Quand une demande d'adresse passe à APPROVED, applique les nouvelles
+    coordonnées sur le UserProfile (lat/lon) + tente un recalcul du trajet
+    standard via ORS (best-effort, fail-open).
+
+    Couvre TOUS les chemins (API admin, Django admin natif, shell…).
+    """
+    if created:
+        return
+    if instance.status != HomeAddressChangeRequest.Status.APPROVED:
+        return
+    if getattr(instance, "_previous_status", None) == HomeAddressChangeRequest.Status.APPROVED:
+        return  # déjà traité
+
+    user = instance.user
+    user.home_lat = instance.new_home_lat
+    user.home_lon = instance.new_home_lon
+
+    # Best-effort recompute commute via OpenRouteService (si ORS_API_KEY set).
+    try:
+        from services.routing import compute_minutes
+        if user.home_site_id and user.home_site:
+            new_minutes = compute_minutes(
+                float(instance.new_home_lat), float(instance.new_home_lon),
+                float(user.home_site.latitude), float(user.home_site.longitude),
+            )
+            if new_minutes is not None:
+                user.standard_commute_minutes = new_minutes
+    except Exception:
+        pass  # fail-open : l'admin peut éditer manuellement la durée
+
+    user.save(update_fields=["home_lat", "home_lon", "standard_commute_minutes"])

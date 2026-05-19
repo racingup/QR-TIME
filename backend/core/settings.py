@@ -294,3 +294,9 @@ if SENTRY_DSN and not DEBUG:
         )
     except ImportError:
         pass  # Sentry SDK pas installé — fail-open
+
+# ── Clé secrète de promotion admin général ─────────────────────────────
+# Garde-fou supplémentaire avant de promouvoir un user en superuser via
+# l'API (`POST /api/admin/users/{id}/promote-superuser/`).
+# Typiquement 15 chiffres. Si vide, la feature est désactivée (503).
+SUPERUSER_PROMOTION_KEY = os.environ.get("SUPERUSER_PROMOTION_KEY", "")

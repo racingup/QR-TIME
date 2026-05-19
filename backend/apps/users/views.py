@@ -640,11 +640,23 @@ class MeHomeAddressRequestView(APIView):
             new_address_label=(request.data.get("new_address_label") or "")[:300],
             user_reason=(request.data.get("reason") or "")[:1000],
         )
+        # Auto-approbation pour les superusers (admin général : peut tout
+        # faire, y compris s'auto-approuver). Le signal post_save sur
+        # HomeAddressChangeRequest applique le changement.
+        if request.user.is_superuser:
+            req.status = HomeAddressChangeRequest.Status.APPROVED
+            req.decided_by = request.user
+            req.admin_comment = "Auto-approuvé (admin général)"
+            req.decided_at = timezone.now()
+            req.save()
         log_admin_action(
             actor=request.user, action=AdminAuditLog.Action.USER_UPDATE,
             target_user=request.user,
             object_type="HomeAddressChangeRequest", object_id=str(req.pk),
-            details={"workflow": "home_address_request_created"},
+            details={
+                "workflow": "home_address_request_created",
+                "auto_approved": request.user.is_superuser,
+            },
             request=request,
         )
         return Response(
@@ -1089,6 +1101,156 @@ def _serialize_withdrawal_request_admin(req) -> dict:
     if req.decided_by:
         d["decided_by"] = req.decided_by.get_full_name() or req.decided_by.username
     return d
+
+
+# ── Admin : gestion des demandes de changement d'adresse ───────────────
+
+class AdminHomeAddressRequestListView(APIView):
+    """GET /api/admin/home-address-requests/?status=PENDING — superuser only."""
+    permission_classes = [IsSuperUser]
+
+    def get(self, request):
+        status_filter = request.query_params.get("status")
+        qs = HomeAddressChangeRequest.objects.select_related("user", "decided_by").order_by("-created_at")
+        if status_filter:
+            qs = qs.filter(status=status_filter)
+        return Response({
+            "results": [_serialize_home_address_request_admin(r) for r in qs],
+        })
+
+
+class AdminHomeAddressRequestDecideView(APIView):
+    """PATCH /api/admin/home-address-requests/{id}/ — approuver ou refuser.
+
+    Body : { decision: "APPROVE" | "REJECT", comment?: "" }
+    L'application effective des coordonnées est faite par le signal post_save.
+    """
+    permission_classes = [IsSuperUser]
+
+    def patch(self, request, pk):
+        from django.shortcuts import get_object_or_404
+        from services.audit import log_admin_action
+
+        req = get_object_or_404(HomeAddressChangeRequest, pk=pk)
+        if req.status != HomeAddressChangeRequest.Status.PENDING:
+            return Response({"error": "NOT_PENDING"}, status=status.HTTP_409_CONFLICT)
+
+        decision = request.data.get("decision")
+        comment = (request.data.get("comment") or "")[:500]
+
+        if decision == "APPROVE":
+            req.status = HomeAddressChangeRequest.Status.APPROVED
+        elif decision == "REJECT":
+            req.status = HomeAddressChangeRequest.Status.REJECTED
+        else:
+            return Response({"error": "INVALID_DECISION"}, status=status.HTTP_400_BAD_REQUEST)
+
+        req.decided_by = request.user
+        req.admin_comment = comment
+        req.decided_at = timezone.now()
+        req.save()  # signal post_save applique les coords si APPROVED
+
+        log_admin_action(
+            actor=request.user, action=AdminAuditLog.Action.USER_UPDATE,
+            target_user=req.user, object_type="HomeAddressChangeRequest",
+            object_id=str(req.pk),
+            details={"workflow": "home_address_decision", "decision": decision},
+            request=request,
+        )
+        return Response({"ok": True, "request": _serialize_home_address_request_admin(req)})
+
+
+def _serialize_home_address_request_admin(req) -> dict:
+    d = _serialize_home_address_request(req)
+    d["user"] = {
+        "id": req.user_id,
+        "username": req.user.username,
+        "full_name": req.user.get_full_name(),
+        "email": req.user.email,
+    }
+    if req.decided_by:
+        d["decided_by"] = req.decided_by.get_full_name() or req.decided_by.username
+    return d
+
+
+# ── Promote / demote superuser via clé secrète ────────────────────────
+
+class AdminPromoteSuperuserView(APIView):
+    """POST /api/admin/users/{id}/promote-superuser/ — promotion ADMIN GÉNÉRAL.
+
+    Garde-fou : exige la clé secrète SUPERUSER_PROMOTION_KEY (env var,
+    typiquement 15 chiffres). Sans la bonne clé → 403, et tentative
+    enregistrée en audit log.
+
+    L'appelant DOIT déjà être superuser (sinon il ne pourrait pas accéder
+    à l'espace admin). Cela permet à un superuser de promouvoir un autre
+    user sans pouvoir le faire en aveugle.
+
+    Pour DEMOTE : POST avec body {demote: true, key: "..."}.
+    """
+    permission_classes = [IsSuperUser]
+
+    def post(self, request, pk):
+        from django.conf import settings
+        from django.shortcuts import get_object_or_404
+        from services.audit import log_admin_action
+
+        configured_key = getattr(settings, "SUPERUSER_PROMOTION_KEY", "")
+        if not configured_key:
+            return Response(
+                {"error": "FEATURE_DISABLED",
+                 "detail": "La promotion superuser n'est pas configurée (variable SUPERUSER_PROMOTION_KEY)."},
+                status=status.HTTP_503_SERVICE_UNAVAILABLE,
+            )
+
+        provided_key = (request.data.get("key") or "").strip()
+        demote = bool(request.data.get("demote", False))
+
+        target = get_object_or_404(UserProfile, pk=pk)
+
+        if provided_key != configured_key:
+            # Trace dans l'audit pour détection abus.
+            log_admin_action(
+                actor=request.user, action=AdminAuditLog.Action.ROLE_CHANGE,
+                target_user=target, object_type="superuser_promotion",
+                details={"outcome": "WRONG_KEY", "demote": demote},
+                request=request,
+            )
+            return Response(
+                {"error": "INVALID_KEY",
+                 "detail": "Clé secrète incorrecte."},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+
+        if demote:
+            if target.id == request.user.id:
+                return Response(
+                    {"error": "CANNOT_DEMOTE_SELF",
+                     "detail": "Vous ne pouvez pas vous démettre vous-même."},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+            target.is_superuser = False
+            target.is_staff = False
+        else:
+            target.is_superuser = True
+            target.is_staff = True
+        target.save(update_fields=["is_superuser", "is_staff"])
+
+        log_admin_action(
+            actor=request.user, action=AdminAuditLog.Action.ROLE_CHANGE,
+            target_user=target, object_type="superuser_promotion",
+            details={
+                "outcome": "OK",
+                "is_superuser_after": target.is_superuser,
+                "demote": demote,
+            },
+            request=request,
+        )
+        return Response({
+            "ok": True,
+            "user_id": target.id,
+            "is_superuser": target.is_superuser,
+        })
 
 
 # ── Helpers ─────────────────────────────────────────────────────────────────

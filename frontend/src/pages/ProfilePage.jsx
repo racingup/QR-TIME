@@ -1,6 +1,9 @@
-import { useEffect, useState } from 'react'
+import { lazy, Suspense, useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import * as meApi from '../api/me'
+import { useAuth } from '../hooks/useAuth'
+
+const MapPicker = lazy(() => import('../components/MapPicker'))
 
 /**
  * Page de profil utilisateur — édition par l'employé lui-même.
@@ -235,12 +238,14 @@ function PasswordSection() {
   )
 }
 
-// ── Section 3 : Adresse de domicile (workflow RH) ───────────────────
+// ── Section 3 : Adresse de domicile via MapPicker (workflow RH) ─────
 function HomeAddressSection({ profile, onChange }) {
+  const { user } = useAuth()
+  const isSuperuser = Boolean(user?.is_superuser)
   const [form, setForm] = useState({
     open: false,
-    lat: profile.home_lat?.toString() ?? '',
-    lon: profile.home_lon?.toString() ?? '',
+    lat: profile.home_lat ?? null,
+    lon: profile.home_lon ?? null,
     label: '',
     reason: '',
   })
@@ -250,20 +255,36 @@ function HomeAddressSection({ profile, onChange }) {
 
   const submit = async () => {
     setFeedback(null)
-    const lat = parseFloat(form.lat)
-    const lon = parseFloat(form.lon)
-    if (Number.isNaN(lat) || Number.isNaN(lon)) {
-      setFeedback({ type: 'error', msg: 'Coordonnées invalides.' })
+    if (form.lat == null || form.lon == null) {
+      setFeedback({ type: 'error', msg: 'Sélectionnez votre domicile sur la carte.' })
       return
     }
     setSubmitting(true)
     try {
       const resp = await meApi.homeAddressRequest.create({
-        lat, lon, label: form.label, reason: form.reason,
+        lat: form.lat, lon: form.lon, label: form.label, reason: form.reason,
       })
-      onChange({ pending_home_address_change: resp.request })
+      // Pour superuser : la demande est auto-approuvée + signal applique.
+      // On reflète l'état dans le profil affiché.
+      if (isSuperuser) {
+        onChange({
+          home_lat: form.lat,
+          home_lon: form.lon,
+          has_home_address: true,
+          pending_home_address_change: null,
+        })
+        setFeedback({
+          type: 'success',
+          msg: '✓ Adresse appliquée immédiatement (admin général).',
+        })
+      } else {
+        onChange({ pending_home_address_change: resp.request })
+        setFeedback({
+          type: 'success',
+          msg: 'Demande envoyée à l\'administrateur RH.',
+        })
+      }
       setForm({ ...form, open: false, label: '', reason: '' })
-      setFeedback({ type: 'success', msg: 'Demande envoyée à l\'administrateur RH.' })
     } catch (err) {
       const data = err.response?.data
       if (data?.error === 'ALREADY_PENDING' && data.request) {
@@ -277,6 +298,10 @@ function HomeAddressSection({ profile, onChange }) {
     }
   }
 
+  const defaultCenter = profile.has_home_address
+    ? [profile.home_lat, profile.home_lon]
+    : [46.519962, 6.633597] // Lausanne par défaut
+
   return (
     <section className="glass rounded-3xl p-5 space-y-3">
       <h2 className="font-semibold">
@@ -286,10 +311,20 @@ function HomeAddressSection({ profile, onChange }) {
         </span>
       </h2>
       <p className="text-xs text-slate-500">
-        Toute modification de l'adresse de domicile a un impact contractuel
-        (calcul du trajet pro compensable en mission). Votre demande est
-        <strong> transmise à votre administrateur RH</strong>, qui validera
-        avant que les nouvelles coordonnées soient appliquées.
+        {isSuperuser ? (
+          <>
+            En tant qu'<strong>admin général</strong>, votre modification
+            d'adresse est appliquée <strong>immédiatement</strong> sans
+            attendre d'approbation.
+          </>
+        ) : (
+          <>
+            Toute modification a un impact contractuel (calcul du trajet
+            pro compensable en mission). Votre demande est{' '}
+            <strong>transmise à votre administrateur RH</strong>, qui
+            validera avant que la nouvelle adresse soit appliquée.
+          </>
+        )}
       </p>
 
       {/* Adresse actuelle */}
@@ -304,7 +339,6 @@ function HomeAddressSection({ profile, onChange }) {
         )}
       </div>
 
-      {/* Demande PENDING en cours */}
       {pending ? (
         <div className="glass-soft rounded-2xl p-3 space-y-2 border-l-4 border-amber-500">
           <p className="text-sm">
@@ -322,9 +356,6 @@ function HomeAddressSection({ profile, onChange }) {
           {pending.user_reason && (
             <p className="text-xs text-slate-500">Motif : {pending.user_reason}</p>
           )}
-          <p className="text-xs text-slate-500">
-            Vous serez notifié par email lors de la décision.
-          </p>
         </div>
       ) : !form.open ? (
         <button
@@ -332,59 +363,56 @@ function HomeAddressSection({ profile, onChange }) {
           onClick={() => setForm({ ...form, open: true })}
           className="pill pill-primary"
         >
-          Demander un changement d'adresse
+          {isSuperuser ? 'Modifier mon adresse' : 'Demander un changement d\'adresse'}
         </button>
       ) : (
         <div className="glass-soft rounded-2xl p-3 space-y-3">
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-sm">
-            <label className="block">
-              <span className="text-slate-600">Latitude</span>
-              <input
-                type="number"
-                step="0.000001"
-                className="glass-input w-full mt-1 font-mono"
-                value={form.lat}
-                onChange={(e) => setForm({ ...form, lat: e.target.value })}
-                placeholder="46.519962"
-              />
-            </label>
-            <label className="block">
-              <span className="text-slate-600">Longitude</span>
-              <input
-                type="number"
-                step="0.000001"
-                className="glass-input w-full mt-1 font-mono"
-                value={form.lon}
-                onChange={(e) => setForm({ ...form, lon: e.target.value })}
-                placeholder="6.633597"
-              />
-            </label>
-          </div>
-          <label className="block text-sm">
-            <span className="text-slate-600">Adresse (libellé pour le RH)</span>
-            <input
-              type="text"
-              className="glass-input w-full mt-1"
-              value={form.label}
-              onChange={(e) => setForm({ ...form, label: e.target.value })}
-              placeholder="Rue de la Paix 12, 1003 Lausanne"
-              maxLength={300}
-            />
-          </label>
-          <label className="block text-sm">
-            <span className="text-slate-600">Motif (optionnel)</span>
-            <textarea
-              className="glass-input w-full mt-1 h-16"
-              value={form.reason}
-              onChange={(e) => setForm({ ...form, reason: e.target.value })}
-              placeholder="Ex : déménagement le 01/06"
-              maxLength={1000}
-            />
-          </label>
-          <p className="text-xs text-slate-500">
-            💡 Pour trouver les coordonnées exactes : ouvrez l'adresse dans
-            Google Maps ou OpenStreetMap, clic droit puis « Copier les coordonnées ».
+          <p className="text-xs text-slate-600">
+            👆 Cliquez sur la carte à l'emplacement de votre domicile.
           </p>
+          <div className="rounded-xl overflow-hidden border border-slate-200">
+            <Suspense
+              fallback={<div className="h-72 flex items-center justify-center text-sm text-slate-400">Chargement de la carte…</div>}
+            >
+              <MapPicker
+                lat={form.lat}
+                lon={form.lon}
+                defaultCenter={defaultCenter}
+                onPick={({ lat, lon }) => setForm({ ...form, lat, lon })}
+                height={300}
+              />
+            </Suspense>
+          </div>
+          {form.lat != null && form.lon != null && (
+            <p className="text-xs font-mono text-slate-600">
+              📍 {form.lat.toFixed(5)}, {form.lon.toFixed(5)}
+            </p>
+          )}
+          {!isSuperuser && (
+            <>
+              <label className="block text-sm">
+                <span className="text-slate-600">Adresse (libellé pour le RH)</span>
+                <input
+                  type="text"
+                  className="glass-input w-full mt-1"
+                  value={form.label}
+                  onChange={(e) => setForm({ ...form, label: e.target.value })}
+                  placeholder="Rue de la Paix 12, 1003 Lausanne"
+                  maxLength={300}
+                />
+              </label>
+              <label className="block text-sm">
+                <span className="text-slate-600">Motif (optionnel)</span>
+                <textarea
+                  className="glass-input w-full mt-1 h-16"
+                  value={form.reason}
+                  onChange={(e) => setForm({ ...form, reason: e.target.value })}
+                  placeholder="Ex : déménagement le 01/06"
+                  maxLength={1000}
+                />
+              </label>
+            </>
+          )}
           {feedback && (
             <p
               className={`text-sm rounded-xl px-3 py-2 ${
@@ -408,10 +436,14 @@ function HomeAddressSection({ profile, onChange }) {
             <button
               type="button"
               onClick={submit}
-              disabled={submitting}
+              disabled={submitting || form.lat == null}
               className="pill pill-primary disabled:opacity-50"
             >
-              {submitting ? 'Envoi…' : 'Envoyer la demande au RH'}
+              {submitting
+                ? 'Envoi…'
+                : isSuperuser
+                  ? 'Appliquer'
+                  : 'Envoyer la demande au RH'}
             </button>
           </div>
         </div>

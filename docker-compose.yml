@@ -41,6 +41,9 @@ services:
       CORS_ALLOWED_ORIGINS: "http://localhost:3000,http://localhost:8000"
       # Routing : forwardé depuis le shell (`export ORS_API_KEY=…`).
       ORS_API_KEY: ${ORS_API_KEY:-}
+      # Clé secrète 15 chiffres pour promouvoir un user en admin général.
+      # Si vide, la feature est désactivée (endpoint retourne 503).
+      SUPERUSER_PROMOTION_KEY: ${SUPERUSER_PROMOTION_KEY:-123456789012345}
     ports:
       - "${BACKEND_HOST_PORT:-8000}:8000"
     depends_on:

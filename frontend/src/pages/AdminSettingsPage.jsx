@@ -41,8 +41,9 @@ const NAV_GROUPS = [
     label: 'Conformité',
     su: true,
     tabs: [
-      { id: 'deletion-requests', icon: '🗑', label: 'Demandes RGPD',    desc: 'Suppressions de compte Art. 32 LPD', su: true },
-      { id: 'audit',             icon: '📋', label: 'Journal d\'audit', desc: 'Traçabilité des actions administrateurs', su: true },
+      { id: 'deletion-requests',     icon: '🗑',  label: 'Demandes RGPD',     desc: 'Suppressions de compte Art. 32 LPD', su: true },
+      { id: 'home-address-requests', icon: '🏠', label: 'Changements adresse', desc: 'Approuver les demandes de domicile', su: true },
+      { id: 'audit',                 icon: '📋', label: 'Journal d\'audit',  desc: 'Traçabilité des actions administrateurs', su: true },
     ],
   },
 ]
@@ -161,6 +162,7 @@ export default function AdminSettingsPage() {
           {tab === 'users'       && isSu && <UsersTab />}
           {tab === 'company'     && isSu && <CompanyTab />}
           {tab === 'deletion-requests' && isSu && <DeletionRequestsTab />}
+          {tab === 'home-address-requests' && isSu && <HomeAddressRequestsTab />}
           {tab === 'audit'       && isSu && <AuditTab />}
         </div>
       </div>
@@ -1184,6 +1186,7 @@ function UsersTab() {
   }
 
   const [deletingUser, setDeletingUser] = useState(null)
+  const [promotingUser, setPromotingUser] = useState(null)
 
   const onDelete = async () => {
     if (!deletingUser) return
@@ -1194,6 +1197,21 @@ function UsersTab() {
 
   return (
     <div className="space-y-4">
+      {/* Dialog promotion/démotion admin général (clé secrète requise) */}
+      {promotingUser && (
+        <PromoteSuperuserModal
+          user={promotingUser}
+          onClose={() => setPromotingUser(null)}
+          onDone={(updated) => {
+            // Met à jour la ligne dans la table.
+            setUsers((prev) =>
+              prev.map((x) => x.id === updated.user_id ? { ...x, is_superuser: updated.is_superuser } : x),
+            )
+            setPromotingUser(null)
+          }}
+        />
+      )}
+
       {/* Dialog de confirmation suppression */}
       {deletingUser && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-3" role="dialog">
@@ -1411,13 +1429,29 @@ function UsersTab() {
               </td>
               <td className="px-3 py-2">
                 {!isAnonymized && (
-                  <button
-                    type="button"
-                    onClick={() => setDeletingUser(u)}
-                    className="press text-xs px-3 py-1 rounded-lg bg-rose-100/60 text-rose-700 hover:bg-rose-200/60 transition"
-                  >
-                    Suppr.
-                  </button>
+                  <div className="flex flex-col gap-1">
+                    <button
+                      type="button"
+                      onClick={() => setPromotingUser(u)}
+                      className={`press text-xs px-3 py-1 rounded-lg transition ${
+                        u.is_superuser
+                          ? 'bg-purple-100/60 text-purple-700 hover:bg-purple-200/60'
+                          : 'bg-slate-100/60 text-slate-700 hover:bg-slate-200/60'
+                      }`}
+                      title={u.is_superuser
+                        ? 'Démettre cet admin général (clé requise)'
+                        : 'Promouvoir en admin général (clé requise)'}
+                    >
+                      {u.is_superuser ? '◆ Admin général' : '⬆ Promouvoir'}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setDeletingUser(u)}
+                      className="press text-xs px-3 py-1 rounded-lg bg-rose-100/60 text-rose-700 hover:bg-rose-200/60 transition"
+                    >
+                      Suppr.
+                    </button>
+                  </div>
                 )}
               </td>
             </tr>
@@ -1920,6 +1954,302 @@ function HomeAddressModal({ user, siteCenter, onClose, onSave, onClear }) {
               {saving ? 'Enregistrement…' : 'Enregistrer'}
             </button>
           </div>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+
+// ── Modal de promotion / démotion admin général (clé secrète) ─────────
+function PromoteSuperuserModal({ user, onClose, onDone }) {
+  const demoting = Boolean(user.is_superuser)
+  const [key, setKey] = useState('')
+  const [confirmText, setConfirmText] = useState('')
+  const [saving, setSaving] = useState(false)
+  const [err, setErr] = useState(null)
+
+  // Pour éviter toute promotion accidentelle, on demande aussi de retaper
+  // le username (comme la suppression LPD).
+  const confirmOk = confirmText.trim() === user.username && key.length >= 8
+
+  const submit = async () => {
+    if (!confirmOk) {
+      setErr('Veuillez saisir la clé secrète ET retaper le username.')
+      return
+    }
+    setSaving(true)
+    setErr(null)
+    try {
+      const resp = await adminApi.users.promoteSuperuser(user.id, key.trim(), demoting)
+      onDone(resp)
+    } catch (e) {
+      const data = e.response?.data
+      if (data?.error === 'INVALID_KEY') {
+        setErr('Clé secrète incorrecte.')
+      } else if (data?.error === 'FEATURE_DISABLED') {
+        setErr('Promotion superuser désactivée (SUPERUSER_PROMOTION_KEY vide).')
+      } else if (data?.error === 'CANNOT_DEMOTE_SELF') {
+        setErr('Vous ne pouvez pas vous démettre vous-même.')
+      } else {
+        setErr(data?.detail || data?.error || e.message)
+      }
+      setSaving(false)
+    }
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-3" role="dialog">
+      <div className="absolute inset-0 bg-slate-900/50 backdrop-blur-sm" onClick={onClose} aria-hidden />
+      <div className="relative glass-strong rounded-2xl w-full max-w-md p-5 space-y-4">
+        <h3 className="font-semibold text-slate-900">
+          {demoting ? '⚠ Démettre admin général' : '⬆ Promouvoir admin général'}
+          {' '}— <span className="font-mono">{user.username}</span>
+        </h3>
+        <p className={`text-xs glass rounded-xl p-3 ${demoting ? 'text-amber-700' : 'text-purple-700'}`}>
+          {demoting ? (
+            <>
+              Démettre <strong>{user.username}</strong> retire tous les
+              privilèges d'admin général (accès à l'admin, auto-approbation
+              des demandes, gestion des utilisateurs). Les données restent
+              intactes.
+            </>
+          ) : (
+            <>
+              Promouvoir <strong>{user.username}</strong> en admin général :
+              il pourra tout faire (gérer utilisateurs, sites, paramètres,
+              s'auto-approuver les demandes RH, etc.). Action sensible —
+              clé secrète d'organisation requise.
+            </>
+          )}
+        </p>
+        <label className="block text-sm">
+          <span className="text-slate-700">Clé secrète (admin général)</span>
+          <input
+            type="password"
+            className="glass-input w-full mt-1 font-mono"
+            value={key}
+            onChange={(e) => setKey(e.target.value)}
+            placeholder="••••••••••••••• (15 chiffres)"
+            autoComplete="off"
+            spellCheck={false}
+          />
+        </label>
+        <label className="block text-sm">
+          <span className="text-slate-700">
+            Pour confirmer, retapez <code className="font-mono bg-slate-100 px-1 rounded">{user.username}</code> :
+          </span>
+          <input
+            type="text"
+            className="glass-input w-full mt-1 font-mono"
+            value={confirmText}
+            onChange={(e) => setConfirmText(e.target.value)}
+            placeholder={user.username}
+            autoComplete="off"
+            spellCheck={false}
+          />
+        </label>
+        {err && <p className="text-xs text-rose-700 glass rounded-xl p-3">⚠ {err}</p>}
+        <div className="flex gap-2 justify-end">
+          <button
+            type="button" onClick={onClose} disabled={saving}
+            className="press px-4 py-2 text-sm glass-soft rounded-xl text-slate-700"
+          >Annuler</button>
+          <button
+            type="button" onClick={submit} disabled={saving || !confirmOk}
+            className={`press px-4 py-2 text-sm text-white rounded-xl font-medium disabled:opacity-40 disabled:cursor-not-allowed ${
+              demoting ? 'bg-amber-600' : 'bg-purple-600'
+            }`}
+          >
+            {saving ? 'Traitement…' : demoting ? 'Démettre' : 'Promouvoir'}
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+
+// ── Tab : demandes de changement d'adresse de domicile ───────────────
+function HomeAddressRequestsTab() {
+  const [requests, setRequests] = useState([])
+  const [loading, setLoading] = useState(true)
+  const [decidingReq, setDecidingReq] = useState(null) // {req, action}
+
+  const refresh = () => {
+    setLoading(true)
+    adminApi.homeAddressRequests.list()
+      .then((d) => setRequests(d.results || d))
+      .finally(() => setLoading(false))
+  }
+  useEffect(() => { refresh() }, [])
+
+  const pending = requests.filter((r) => r.status === 'PENDING')
+  const past = requests.filter((r) => r.status !== 'PENDING')
+
+  return (
+    <div className="space-y-4">
+      <h2 className="font-semibold text-lg">Demandes de changement d'adresse</h2>
+      <p className="text-xs text-slate-500">
+        Une modification de l'adresse de domicile a un impact sur le calcul du
+        trajet pro compensable (Art. 13 OLT 1). Approuvez après vérification
+        du justificatif (RH).
+      </p>
+
+      {loading ? (
+        <p className="text-sm text-slate-500">Chargement…</p>
+      ) : (
+        <>
+          <section className="space-y-2">
+            <h3 className="text-sm font-semibold text-amber-700">
+              En attente ({pending.length})
+            </h3>
+            {pending.length === 0 ? (
+              <p className="text-sm text-slate-400 italic">Aucune demande en attente.</p>
+            ) : (
+              <ul className="space-y-2">
+                {pending.map((r) => (
+                  <li key={r.id} className="glass-soft rounded-xl p-3 space-y-2 border-l-4 border-amber-500">
+                    <div className="flex items-start justify-between gap-3">
+                      <div>
+                        <p className="font-medium">
+                          {r.user.full_name || r.user.username}{' '}
+                          <span className="text-xs text-slate-500 font-mono">@{r.user.username}</span>
+                        </p>
+                        <p className="text-xs text-slate-500">
+                          Soumis le {new Date(r.created_at).toLocaleString('fr-FR')}
+                        </p>
+                      </div>
+                      <div className="flex gap-2">
+                        <button
+                          type="button"
+                          onClick={() => setDecidingReq({ req: r, action: 'REJECT' })}
+                          className="press text-xs px-3 py-1 rounded-lg bg-slate-200 text-slate-700"
+                        >Refuser</button>
+                        <button
+                          type="button"
+                          onClick={() => setDecidingReq({ req: r, action: 'APPROVE' })}
+                          className="press text-xs px-3 py-1 rounded-lg bg-emerald-500 text-white font-medium"
+                        >Approuver</button>
+                      </div>
+                    </div>
+                    <p className="text-xs font-mono text-slate-700">
+                      📍 {r.new_home_lat.toFixed(5)}, {r.new_home_lon.toFixed(5)}
+                    </p>
+                    {r.new_address_label && (
+                      <p className="text-xs text-slate-600 italic">« {r.new_address_label} »</p>
+                    )}
+                    {r.user_reason && (
+                      <p className="text-xs text-slate-500">Motif : {r.user_reason}</p>
+                    )}
+                    <a
+                      href={`https://www.openstreetmap.org/?mlat=${r.new_home_lat}&mlon=${r.new_home_lon}#map=17/${r.new_home_lat}/${r.new_home_lon}`}
+                      target="_blank" rel="noopener noreferrer"
+                      className="text-xs text-blue-600 underline"
+                    >Voir sur OpenStreetMap ↗</a>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </section>
+
+          {past.length > 0 && (
+            <section className="space-y-2 pt-2">
+              <h3 className="text-sm font-semibold text-slate-600">Historique récent</h3>
+              <ul className="space-y-1 text-xs">
+                {past.slice(0, 10).map((r) => (
+                  <li key={r.id} className="glass-soft rounded-xl px-3 py-2 flex items-center gap-3">
+                    <span className={`px-2 py-0.5 rounded-full text-[10px] font-semibold ${
+                      r.status === 'APPROVED' ? 'bg-emerald-100 text-emerald-700' : 'bg-rose-100 text-rose-700'
+                    }`}>
+                      {r.status === 'APPROVED' ? 'Approuvé' : 'Refusé'}
+                    </span>
+                    <span className="font-mono">{r.user.username}</span>
+                    <span className="text-slate-500">
+                      → {r.new_home_lat.toFixed(3)}, {r.new_home_lon.toFixed(3)}
+                    </span>
+                    <span className="text-slate-400 ml-auto">
+                      {r.decided_at ? new Date(r.decided_at).toLocaleDateString('fr-FR') : ''}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            </section>
+          )}
+        </>
+      )}
+
+      {decidingReq && (
+        <HomeAddressDecideModal
+          req={decidingReq.req}
+          action={decidingReq.action}
+          onClose={() => setDecidingReq(null)}
+          onSaved={() => { setDecidingReq(null); refresh() }}
+        />
+      )}
+    </div>
+  )
+}
+
+function HomeAddressDecideModal({ req, action, onClose, onSaved }) {
+  const [comment, setComment] = useState('')
+  const [saving, setSaving] = useState(false)
+  const [err, setErr] = useState(null)
+  const isApprove = action === 'APPROVE'
+
+  const submit = async () => {
+    setSaving(true)
+    setErr(null)
+    try {
+      await adminApi.homeAddressRequests.decide(req.id, action, comment)
+      onSaved()
+    } catch (e) {
+      setErr(e?.response?.data?.detail || e.message)
+      setSaving(false)
+    }
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-3" role="dialog">
+      <div className="absolute inset-0 bg-slate-900/50 backdrop-blur-sm" onClick={onClose} aria-hidden />
+      <div className="relative glass-strong rounded-2xl w-full max-w-md p-5 space-y-4">
+        <h3 className="font-semibold text-slate-900">
+          {isApprove ? '✓ Approuver' : '✕ Refuser'} la demande de{' '}
+          <span className="font-mono">{req.user.username}</span>
+        </h3>
+        <p className="text-xs text-slate-600">
+          Nouvelles coordonnées : <span className="font-mono">{req.new_home_lat.toFixed(5)}, {req.new_home_lon.toFixed(5)}</span>
+        </p>
+        {req.new_address_label && (
+          <p className="text-xs text-slate-700 glass-soft rounded-xl p-2 italic">
+            « {req.new_address_label} »
+          </p>
+        )}
+        {isApprove && (
+          <p className="text-xs text-emerald-700 glass-soft rounded-xl p-2">
+            Les coordonnées seront appliquées immédiatement et le trajet
+            standard recalculé via ORS.
+          </p>
+        )}
+        <label className="block text-sm">
+          <span className="text-slate-600">Commentaire {isApprove ? '(optionnel)' : '(motif du refus)'}</span>
+          <textarea
+            className="glass-input w-full mt-1 h-20"
+            value={comment}
+            onChange={(e) => setComment(e.target.value)}
+            maxLength={500}
+          />
+        </label>
+        {err && <p className="text-xs text-rose-700 glass rounded-xl p-3">⚠ {err}</p>}
+        <div className="flex gap-2 justify-end">
+          <button type="button" onClick={onClose} disabled={saving}
+            className="press px-4 py-2 text-sm glass-soft rounded-xl text-slate-700">Annuler</button>
+          <button type="button" onClick={submit} disabled={saving}
+            className={`press px-4 py-2 text-sm text-white rounded-xl font-medium disabled:opacity-50 ${
+              isApprove ? 'bg-emerald-500' : 'bg-slate-800'
+            }`}>
+            {saving ? 'Traitement…' : isApprove ? 'Approuver' : 'Refuser'}
+          </button>
         </div>
       </div>
     </div>

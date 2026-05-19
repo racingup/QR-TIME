@@ -34,6 +34,10 @@ export const users = {
   create: (data) => api.post('/admin/users/', data).then((r) => r.data),
   update: (id, data) => api.patch(`/admin/users/${id}/`, data).then((r) => r.data),
   remove: (id) => api.delete(`/admin/users/${id}/`).then((r) => r.data),
+  promoteSuperuser: (id, key, demote = false) =>
+    api
+      .post(`/admin/users/${id}/promote-superuser/`, { key, demote })
+      .then((r) => r.data),
 }
 
 export const audit = {
@@ -66,5 +70,17 @@ export const deletionRequests = {
   decide: (id, decision, comment = '') =>
     api
       .patch(`/admin/deletion-requests/${id}/`, { decision, comment })
+      .then((r) => r.data),
+}
+
+// Workflow : demandes de changement d'adresse de domicile.
+export const homeAddressRequests = {
+  list: (status) =>
+    api
+      .get('/admin/home-address-requests/', { params: status ? { status } : {} })
+      .then((r) => r.data),
+  decide: (id, decision, comment = '') =>
+    api
+      .patch(`/admin/home-address-requests/${id}/`, { decision, comment })
       .then((r) => r.data),
 }
